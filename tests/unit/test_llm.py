@@ -32,11 +32,7 @@ def test_openrouter_requests_strict_json_schema() -> None:
             200,
             json={
                 "choices": [
-                    {
-                        "message": {
-                            "content": json.dumps({"datasets": ["sessions"], "rationale": "Activity source"})
-                        }
-                    }
+                    {"message": {"content": json.dumps({"datasets": ["sessions"], "rationale": "Activity source"})}}
                 ]
             },
         )
@@ -116,9 +112,7 @@ def _complete_with_handler(
         ),
         httpx.Response(
             200,
-            json={
-                "choices": [{"message": {"content": json.dumps({"datasets": [1], "rationale": "bad type"})}}]
-            },
+            json={"choices": [{"message": {"content": json.dumps({"datasets": [1], "rationale": "bad type"})}}]},
         ),
         httpx.Response(200, content=b""),
         httpx.Response(200, content=b"\xff"),
@@ -157,11 +151,7 @@ def test_openrouter_rejects_invalid_or_oversized_content_length(content_length: 
     response = httpx.Response(
         200,
         headers={"content-length": content_length},
-        json={
-            "choices": [
-                {"message": {"content": json.dumps({"datasets": ["sessions"], "rationale": "activity"})}}
-            ]
-        },
+        json={"choices": [{"message": {"content": json.dumps({"datasets": ["sessions"], "rationale": "activity"})}}]},
     )
 
     with pytest.raises(LLMError):

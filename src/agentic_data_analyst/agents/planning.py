@@ -24,9 +24,7 @@ class MetadataDiscoveryAgent:
         self._llm = llm
         self._max_attempts = max_attempts
 
-    async def select(
-        self, question: AnalyticsQuestion, candidates: Sequence[CatalogCandidate]
-    ) -> DiscoverySelection:
+    async def select(self, question: AnalyticsQuestion, candidates: Sequence[CatalogCandidate]) -> DiscoverySelection:
         if not candidates:
             raise LLMError("Catalog search returned no candidate datasets")
         allowed = {candidate.name for candidate in candidates}

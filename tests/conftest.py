@@ -130,7 +130,5 @@ def llm_responses(analysis_plan: AnalysisPlan, analysis_ir: AnalysisIR) -> tuple
         ),
         analysis_plan,
         analysis_ir,
-        ResultExplanation(
-            summary="The result compares mean session minutes and observed session counts by segment."
-        ),
+        ResultExplanation(summary="The result compares mean session minutes and observed session counts by segment."),
     )

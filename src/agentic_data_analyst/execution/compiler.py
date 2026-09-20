@@ -39,9 +39,7 @@ class SparkCompiler:
 
         for step in ir.steps:
             if isinstance(step, JoinStep):
-                combined = frames[step.left].join(
-                    frames[step.right], self._expression(step.condition), step.how
-                )
+                combined = frames[step.left].join(frames[step.right], self._expression(step.condition), step.how)
                 frames[step.output] = combined
             elif isinstance(step, FilterStep):
                 frames[step.output] = frames[step.input].filter(self._expression(step.predicate))
@@ -58,9 +56,7 @@ class SparkCompiler:
                 for item in step.by:
                     column = self._expression(item.expression)
                     if item.direction == "asc":
-                        ordering.append(
-                            column.asc_nulls_first() if item.nulls == "first" else column.asc_nulls_last()
-                        )
+                        ordering.append(column.asc_nulls_first() if item.nulls == "first" else column.asc_nulls_last())
                     else:
                         ordering.append(
                             column.desc_nulls_first() if item.nulls == "first" else column.desc_nulls_last()
@@ -80,9 +76,7 @@ class SparkCompiler:
             "from pyspark.sql import functions as F",
         ]
         for selected in ir.inputs:
-            columns = ", ".join(
-                f'F.col("{column}").alias("{selected.alias}__{column}")' for column in selected.columns
-            )
+            columns = ", ".join(f'F.col("{column}").alias("{selected.alias}__{column}")' for column in selected.columns)
             lines.append(
                 f'{selected.alias} = spark.read.parquet(catalog.get_dataset("{selected.dataset}").path)'
                 f".select({columns})"
@@ -94,19 +88,15 @@ class SparkCompiler:
                     f'{self._render_expression(step.condition)}, "{step.how}")'
                 )
             elif isinstance(step, FilterStep):
-                lines.append(
-                    f"{step.output} = {step.input}.filter({self._render_expression(step.predicate)})"
-                )
+                lines.append(f"{step.output} = {step.input}.filter({self._render_expression(step.predicate)})")
             elif isinstance(step, ProjectStep):
                 columns = ", ".join(
-                    f'{self._render_expression(item.expression)}.alias("{item.alias}")'
-                    for item in step.columns
+                    f'{self._render_expression(item.expression)}.alias("{item.alias}")' for item in step.columns
                 )
                 lines.append(f"{step.output} = {step.input}.select({columns})")
             elif isinstance(step, AggregateStep):
                 groups = ", ".join(
-                    f'{self._render_expression(item.expression)}.alias("{item.alias}")'
-                    for item in step.group_by
+                    f'{self._render_expression(item.expression)}.alias("{item.alias}")' for item in step.group_by
                 )
                 aggregates = ", ".join(self._render_aggregate(item) for item in step.aggregations)
                 lines.append(f"{step.output} = {step.input}.groupBy({groups}).agg({aggregates})")
@@ -173,9 +163,7 @@ class SparkCompiler:
             AggregateFunction.MIN: "min",
             AggregateFunction.MAX: "max",
         }
-        expression = (
-            self._render_expression(aggregate.expression) if aggregate.expression is not None else "F.lit(1)"
-        )
+        expression = self._render_expression(aggregate.expression) if aggregate.expression is not None else "F.lit(1)"
         return f'F.{functions[aggregate.function]}({expression}).alias("{aggregate.alias}")'
 
     def _expression(self, expression: Expression) -> Column:

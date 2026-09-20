@@ -46,11 +46,7 @@ class Settings(BaseModel):
     ) -> Settings:
         if environ is None:
             file_values = (
-                {
-                    key: value
-                    for key, value in dotenv_values(env_file, encoding="utf-8").items()
-                    if value is not None
-                }
+                {key: value for key, value in dotenv_values(env_file, encoding="utf-8").items() if value is not None}
                 if env_file is not None
                 else {}
             )

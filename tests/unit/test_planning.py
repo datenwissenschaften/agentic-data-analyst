@@ -54,9 +54,7 @@ def test_planner_receives_selected_schema_without_physical_path(
     metadata = (catalog.get_dataset("players"), catalog.get_dataset("sessions"))
     llm = FakeLLMClient([analysis_plan])
 
-    result = asyncio.run(
-        PlanningAgent(llm).plan(AnalyticsQuestion(question="Average duration by segment"), metadata)
-    )
+    result = asyncio.run(PlanningAgent(llm).plan(AnalyticsQuestion(question="Average duration by segment"), metadata))
 
     assert result.datasets[0] == DatasetSelection(
         dataset="players",

@@ -132,9 +132,7 @@ class AnalysisValidator:
 
         join_count = sum(isinstance(step, JoinStep) for step in ir.steps)
         self._limit(join_count, self._policy.max_joins, "too_many_joins", "steps", issues)
-        total_aggregations = sum(
-            len(step.aggregations) for step in ir.steps if isinstance(step, AggregateStep)
-        )
+        total_aggregations = sum(len(step.aggregations) for step in ir.steps if isinstance(step, AggregateStep))
         self._limit(
             total_aggregations,
             self._policy.max_total_aggregations,
@@ -155,9 +153,7 @@ class AnalysisValidator:
                     issues.append(self._error("self_join_relation", step.left, step_path))
                 collisions = set(left) & set(right)
                 if collisions:
-                    issues.append(
-                        self._error("join_column_collision", ", ".join(sorted(collisions)), step_path)
-                    )
+                    issues.append(self._error("join_column_collision", ", ".join(sorted(collisions)), step_path))
                 available = {**left, **right}
                 expression_nodes, expression_type = self._validate_expression(
                     step.condition, available, issues, f"{step_path}.condition"
@@ -579,9 +575,7 @@ class AnalysisValidator:
         issues: list[ValidationIssue],
     ) -> None:
         if actual > maximum:
-            issues.append(
-                AnalysisValidator._error(code, f"{actual} exceeds configured maximum {maximum}", path)
-            )
+            issues.append(AnalysisValidator._error(code, f"{actual} exceeds configured maximum {maximum}", path))
 
     @staticmethod
     def _error(code: str, message: str, path: str) -> ValidationIssue:

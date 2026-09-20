@@ -71,9 +71,7 @@ class AnalysisWorkflow:
         self._record("planning", started, durations)
 
         started = time.perf_counter()
-        ir = await self._generator.generate(
-            request, plan, metadata, max_result_rows=self._policy.max_result_rows
-        )
+        ir = await self._generator.generate(request, plan, metadata, max_result_rows=self._policy.max_result_rows)
         self._record("generation", started, durations)
 
         started = time.perf_counter()

@@ -63,9 +63,7 @@ class DatasetMetadata(StrictModel):
     path: str
     columns: tuple[ColumnMetadata, ...] = Field(min_length=1, max_length=MAX_SELECTED_COLUMNS_PER_INPUT)
     relationships: tuple[RelationshipMetadata, ...] = ()
-    tags: tuple[Annotated[str, StringConstraints(min_length=1, max_length=100)], ...] = Field(
-        default=(), max_length=32
-    )
+    tags: tuple[Annotated[str, StringConstraints(min_length=1, max_length=100)], ...] = Field(default=(), max_length=32)
 
     @model_validator(mode="after")
     def unique_columns(self) -> DatasetMetadata:
@@ -80,9 +78,7 @@ class CatalogCandidate(StrictModel):
 
     name: Identifier
     description: Annotated[str, StringConstraints(min_length=1, max_length=4_000)]
-    tags: tuple[Annotated[str, StringConstraints(min_length=1, max_length=100)], ...] = Field(
-        default=(), max_length=32
-    )
+    tags: tuple[Annotated[str, StringConstraints(min_length=1, max_length=100)], ...] = Field(default=(), max_length=32)
     score: float = 0.0
 
 

@@ -72,9 +72,7 @@ class LocalParquetCatalog:
         ranked: list[CatalogCandidate] = []
         for dataset in self._datasets.values():
             name_terms = set(_TOKEN_RE.findall(dataset.name.lower().replace("_", " ")))
-            body = " ".join(
-                [dataset.description, *dataset.tags, *(column.name for column in dataset.columns)]
-            ).lower()
+            body = " ".join([dataset.description, *dataset.tags, *(column.name for column in dataset.columns)]).lower()
             body_terms = set(_TOKEN_RE.findall(body))
             score = float(4 * len(query_terms & name_terms) + len(query_terms & body_terms))
             if score > 0 or not query_terms:
@@ -111,9 +109,7 @@ class LocalParquetCatalog:
                 raise CatalogError(f"Parquet dataset resolves outside catalog root: {parquet_path}")
             folded = name.casefold()
             if folded in casefold_names:
-                raise CatalogError(
-                    f"Duplicate dataset name '{name}' conflicts with '{casefold_names[folded]}'"
-                )
+                raise CatalogError(f"Duplicate dataset name '{name}' conflicts with '{casefold_names[folded]}'")
             casefold_names[folded] = name
             annotation = self._read_annotation(parquet_path)
             try:
@@ -125,9 +121,7 @@ class LocalParquetCatalog:
                 raise CatalogError(f"Duplicate columns in Parquet schema for {name}")
             unknown_annotations = set(annotation.columns) - set(schema_names)
             if unknown_annotations:
-                raise CatalogError(
-                    f"Metadata for {name} describes unknown columns: {sorted(unknown_annotations)}"
-                )
+                raise CatalogError(f"Metadata for {name} describes unknown columns: {sorted(unknown_annotations)}")
             columns = tuple(
                 ColumnMetadata(
                     name=field.name,
@@ -149,9 +143,7 @@ class LocalParquetCatalog:
             except ValidationError as exc:
                 raise CatalogError(f"Invalid dataset metadata for {name}") from exc
         if not datasets:
-            raise CatalogError(
-                f"No '*.parquet' datasets found under {self._root}. Run 'agentic-data-generate'."
-            )
+            raise CatalogError(f"No '*.parquet' datasets found under {self._root}. Run 'agentic-data-generate'.")
         self._validate_relationships(datasets)
         return datasets
 
@@ -186,14 +178,12 @@ class LocalParquetCatalog:
             for relationship in dataset.relationships:
                 if relationship.source_column not in source_columns:
                     raise CatalogError(
-                        f"Relationship on {dataset.name} references unknown source column "
-                        f"{relationship.source_column}"
+                        f"Relationship on {dataset.name} references unknown source column {relationship.source_column}"
                     )
                 target = datasets.get(relationship.target_dataset)
                 if target is None:
                     raise CatalogError(
-                        f"Relationship on {dataset.name} references unknown dataset "
-                        f"{relationship.target_dataset}"
+                        f"Relationship on {dataset.name} references unknown dataset {relationship.target_dataset}"
                     )
                 target_columns = {column.name for column in target.columns}
                 if relationship.target_column not in target_columns:

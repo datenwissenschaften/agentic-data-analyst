@@ -142,16 +142,10 @@ def test_every_expression_operation_compiles_and_executes(
                 columns=(
                     NamedExpression(alias="column_value", expression=duration),
                     NamedExpression(alias="literal_value", expression=_literal("safe")),
-                    NamedExpression(
-                        alias="eq_value", expression=_binary(ExpressionOp.EQ, device, _literal("desktop"))
-                    ),
-                    NamedExpression(
-                        alias="ne_value", expression=_binary(ExpressionOp.NE, device, _literal("unknown"))
-                    ),
+                    NamedExpression(alias="eq_value", expression=_binary(ExpressionOp.EQ, device, _literal("desktop"))),
+                    NamedExpression(alias="ne_value", expression=_binary(ExpressionOp.NE, device, _literal("unknown"))),
                     NamedExpression(alias="gt_value", expression=positive),
-                    NamedExpression(
-                        alias="gte_value", expression=_binary(ExpressionOp.GTE, duration, _literal(0))
-                    ),
+                    NamedExpression(alias="gte_value", expression=_binary(ExpressionOp.GTE, duration, _literal(0))),
                     NamedExpression(alias="lt_value", expression=short),
                     NamedExpression(
                         alias="lte_value", expression=_binary(ExpressionOp.LTE, duration, _literal(10_000))
@@ -168,9 +162,7 @@ def test_every_expression_operation_compiles_and_executes(
                         alias="not_value",
                         expression=Expression(op=ExpressionOp.NOT, arguments=(positive,)),
                     ),
-                    NamedExpression(
-                        alias="add_value", expression=_binary(ExpressionOp.ADD, duration, _literal(1))
-                    ),
+                    NamedExpression(alias="add_value", expression=_binary(ExpressionOp.ADD, duration, _literal(1))),
                     NamedExpression(
                         alias="subtract_value",
                         expression=_binary(ExpressionOp.SUBTRACT, duration, _literal(1)),
@@ -449,9 +441,7 @@ def test_runner_rejects_invalid_ir_before_initializing_spark(
     sample_data_dir: Path,
 ) -> None:
     sessions = CancellableSessionFactory()
-    invalid = _path_only_ir().model_copy(
-        update={"steps": (LimitStep(output="result", input="missing", count=1),)}
-    )
+    invalid = _path_only_ir().model_copy(update={"steps": (LimitStep(output="result", input="missing", count=1),)})
     runner = SparkAnalysisRunner(
         validator=AnalysisValidator(catalog, approved_data_root=sample_data_dir),
         compiler=SparkCompiler(),

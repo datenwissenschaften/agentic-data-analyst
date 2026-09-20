@@ -74,9 +74,7 @@ def test_health_response() -> None:
         (RuntimeError("unexpected secret"), 500, "internal_error", "Internal server error"),
     ],
 )
-def test_analysis_returns_stable_sanitized_errors(
-    error: Exception, status_code: int, code: str, message: str
-) -> None:
+def test_analysis_returns_stable_sanitized_errors(error: Exception, status_code: int, code: str, message: str) -> None:
     app = create_app(cast(AnalysisWorkflow, FailingWorkflow(error)))
 
     response = _request(app, "POST", "/analysis", json={"question": "Show session trends"})

@@ -142,9 +142,7 @@ def test_central_policy_limits_are_enforced(
 ) -> None:
     policy = AnalysisPolicy(**policy_override)
 
-    result = AnalysisValidator(catalog, approved_data_root=sample_data_dir, policy=policy).validate(
-        analysis_ir
-    )
+    result = AnalysisValidator(catalog, approved_data_root=sample_data_dir, policy=policy).validate(analysis_ir)
 
     assert expected_code in {issue.code for issue in result.issues}
 
@@ -291,9 +289,7 @@ def test_validator_rejects_each_incompatible_expression_category(
     assert "invalid_expression_type" in {issue.code for issue in result.issues}
 
 
-def test_validator_rejects_incompatible_aggregate_types(
-    catalog: LocalParquetCatalog, sample_data_dir: Path
-) -> None:
+def test_validator_rejects_incompatible_aggregate_types(catalog: LocalParquetCatalog, sample_data_dir: Path) -> None:
     invalid = _path_ir().model_copy(
         update={
             "steps": (
@@ -401,9 +397,7 @@ def test_relational_operation_limits_are_enforced(
     sort = analysis_ir.steps[2]
     assert isinstance(sort, SortStep)
     sort = sort.model_copy(update={"by": (*sort.by, SortExpression(expression=sort.by[0].expression))})
-    excessive = analysis_ir.model_copy(
-        update={"steps": (join, extra_join, aggregate, sort, analysis_ir.steps[-1])}
-    )
+    excessive = analysis_ir.model_copy(update={"steps": (join, extra_join, aggregate, sort, analysis_ir.steps[-1])})
 
     result = AnalysisValidator(
         catalog,
@@ -459,9 +453,7 @@ def test_path_validation_uses_canonical_containment(tmp_path: Path) -> None:
     special = root / "special.parquet"
     os.mkfifo(special)
 
-    valid = AnalysisValidator(StaticCatalog(_metadata(approved)), approved_data_root=root).validate(
-        _path_ir()
-    )
+    valid = AnalysisValidator(StaticCatalog(_metadata(approved)), approved_data_root=root).validate(_path_ir())
     assert valid.is_valid
 
     cases = (

@@ -20,7 +20,7 @@ typecheck:
 test:
 	poetry run pytest
 
-check: lint typecheck test
+check: format lint typecheck test
 
 api:
 	poetry run uvicorn agentic_data_analyst.api.app:app --reload

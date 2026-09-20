@@ -1,33 +1,54 @@
-"""Environment-backed application configuration."""
+"""Typed, environment-backed application configuration."""
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from collections.abc import Mapping
 from pathlib import Path
 
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, SecretStr, field_validator
 
-@dataclass(frozen=True, slots=True)
-class Settings:
-    """Runtime settings with side-effect-free environment loading."""
+from agentic_data_analyst.policy import MAX_RESULT_ROWS_HARD, AnalysisPolicy
+
+
+class Settings(BaseModel):
+    """Validated runtime settings loaded at the composition boundary."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     catalog_path: Path = Path("data/sample")
-    spark_master: str = "local[2]"
-    max_result_rows: int = 100
-    openrouter_api_key: str | None = None
-    openrouter_model: str = "openai/gpt-4.1-mini"
-    openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    llm_timeout_seconds: float = 60.0
+    spark_master: str = Field(default="local[2]", min_length=1, max_length=200)
+    max_result_rows: int = Field(default=100, gt=0, le=MAX_RESULT_ROWS_HARD)
+    openrouter_api_key: SecretStr | None = None
+    openrouter_model: str = Field(default="openai/gpt-4.1-mini", min_length=1, max_length=200)
+    openrouter_base_url: AnyHttpUrl = AnyHttpUrl("https://openrouter.ai/api/v1")
+    llm_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
+    max_llm_response_bytes: int = Field(default=1_000_000, ge=1_024, le=10_000_000)
+    execution_timeout_seconds: float | None = Field(default=120.0, gt=0, le=3_600)
+
+    @field_validator("catalog_path")
+    @classmethod
+    def expand_catalog_path(cls, value: Path) -> Path:
+        return value.expanduser()
+
+    @property
+    def analysis_policy(self) -> AnalysisPolicy:
+        return AnalysisPolicy(max_result_rows=self.max_result_rows)
 
     @classmethod
-    def from_env(cls) -> Settings:
-        key = os.getenv("OPENROUTER_API_KEY")
-        return cls(
-            catalog_path=Path(os.getenv("DATA_CATALOG_PATH", "data/sample")),
-            spark_master=os.getenv("SPARK_MASTER", "local[2]"),
-            max_result_rows=int(os.getenv("MAX_RESULT_ROWS", "100")),
-            openrouter_api_key=key if key else None,
-            openrouter_model=os.getenv("OPENROUTER_MODEL", "openai/gpt-4.1-mini"),
-            openrouter_base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/"),
-            llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "60")),
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
+        source = os.environ if environ is None else environ
+        key = source.get("OPENROUTER_API_KEY")
+        return cls.model_validate(
+            {
+                "catalog_path": source.get("DATA_CATALOG_PATH", "data/sample"),
+                "spark_master": source.get("SPARK_MASTER", "local[2]"),
+                "max_result_rows": source.get("MAX_RESULT_ROWS", "100"),
+                "openrouter_api_key": key if key else None,
+                "openrouter_model": source.get("OPENROUTER_MODEL", "openai/gpt-4.1-mini"),
+                "openrouter_base_url": source.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+                "llm_timeout_seconds": source.get("LLM_TIMEOUT_SECONDS", "60"),
+                "max_llm_response_bytes": source.get("MAX_LLM_RESPONSE_BYTES", "1000000"),
+                "execution_timeout_seconds": source.get("EXECUTION_TIMEOUT_SECONDS", "120"),
+            }
         )

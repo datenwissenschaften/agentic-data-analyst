@@ -8,6 +8,21 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from agentic_data_analyst.policy import (
+    MAX_AGGREGATIONS,
+    MAX_EXPRESSION_ARGUMENTS,
+    MAX_GROUP_KEYS,
+    MAX_IR_INPUTS,
+    MAX_IR_STEPS,
+    MAX_LITERAL_CHARS,
+    MAX_PLAN_STEPS,
+    MAX_PROJECT_COLUMNS,
+    MAX_QUESTION_CHARS,
+    MAX_RESULT_ROWS_HARD,
+    MAX_SELECTED_COLUMNS_PER_INPUT,
+    MAX_SORT_KEYS,
+)
+
 type Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Za-z][A-Za-z0-9_]*$")]
 type Scalar = str | int | float | bool | None
 type ResultValue = Scalar
@@ -16,13 +31,13 @@ type ResultValue = Scalar
 class StrictModel(BaseModel):
     """Base contract that rejects unexpected LLM-provided fields."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
 
 
 class ColumnMetadata(StrictModel):
     name: Identifier
     data_type: str
-    description: str = ""
+    description: Annotated[str, StringConstraints(max_length=2_000)] = ""
     nullable: bool = True
 
 
@@ -35,29 +50,43 @@ class RelationshipMetadata(StrictModel):
 
 class DatasetMetadata(StrictModel):
     name: Identifier
-    description: str
+    description: Annotated[str, StringConstraints(min_length=1, max_length=4_000)]
     path: str
-    columns: tuple[ColumnMetadata, ...]
+    columns: tuple[ColumnMetadata, ...] = Field(min_length=1, max_length=MAX_SELECTED_COLUMNS_PER_INPUT)
     relationships: tuple[RelationshipMetadata, ...] = ()
-    tags: tuple[str, ...] = ()
+    tags: tuple[Annotated[str, StringConstraints(min_length=1, max_length=100)], ...] = Field(
+        default=(), max_length=32
+    )
+
+    @model_validator(mode="after")
+    def unique_columns(self) -> DatasetMetadata:
+        names = [column.name for column in self.columns]
+        if len(set(names)) != len(names):
+            raise ValueError("dataset columns must be unique")
+        return self
 
 
 class CatalogCandidate(StrictModel):
     """Small discovery response; schemas are loaded only after selection."""
 
     name: Identifier
-    description: str
-    tags: tuple[str, ...] = ()
+    description: Annotated[str, StringConstraints(min_length=1, max_length=4_000)]
+    tags: tuple[Annotated[str, StringConstraints(min_length=1, max_length=100)], ...] = Field(
+        default=(), max_length=32
+    )
     score: float = 0.0
 
 
 class AnalyticsQuestion(StrictModel):
-    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=2_000)]
+    question: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=3, max_length=MAX_QUESTION_CHARS),
+    ]
 
 
 class DiscoverySelection(StrictModel):
-    datasets: tuple[Identifier, ...] = Field(min_length=1, max_length=8)
-    rationale: str
+    datasets: tuple[Identifier, ...] = Field(min_length=1, max_length=MAX_IR_INPUTS)
+    rationale: Annotated[str, StringConstraints(min_length=1, max_length=4_000)]
 
     @model_validator(mode="after")
     def unique_datasets(self) -> DiscoverySelection:
@@ -69,8 +98,8 @@ class DiscoverySelection(StrictModel):
 class DatasetSelection(StrictModel):
     dataset: Identifier
     alias: Identifier
-    columns: tuple[Identifier, ...] = Field(min_length=1)
-    rationale: str
+    columns: tuple[Identifier, ...] = Field(min_length=1, max_length=MAX_SELECTED_COLUMNS_PER_INPUT)
+    rationale: Annotated[str, StringConstraints(min_length=1, max_length=4_000)]
 
     @model_validator(mode="after")
     def unique_columns(self) -> DatasetSelection:
@@ -80,12 +109,25 @@ class DatasetSelection(StrictModel):
 
 
 class AnalysisPlan(StrictModel):
-    objective: str
-    datasets: tuple[DatasetSelection, ...] = Field(min_length=1)
-    steps: tuple[str, ...] = Field(min_length=1, max_length=20)
-    result_grain: str
-    expected_columns: tuple[Identifier, ...] = Field(min_length=1)
-    assumptions: tuple[str, ...] = ()
+    objective: Annotated[str, StringConstraints(min_length=1, max_length=4_000)]
+    datasets: tuple[DatasetSelection, ...] = Field(min_length=1, max_length=MAX_IR_INPUTS)
+    steps: tuple[Annotated[str, StringConstraints(min_length=1, max_length=2_000)], ...] = Field(
+        min_length=1, max_length=MAX_PLAN_STEPS
+    )
+    result_grain: Annotated[str, StringConstraints(min_length=1, max_length=2_000)]
+    expected_columns: tuple[Identifier, ...] = Field(min_length=1, max_length=MAX_PROJECT_COLUMNS)
+    assumptions: tuple[Annotated[str, StringConstraints(min_length=1, max_length=2_000)], ...] = Field(
+        default=(), max_length=MAX_PLAN_STEPS
+    )
+
+    @model_validator(mode="after")
+    def unique_contract_names(self) -> AnalysisPlan:
+        aliases = [dataset.alias for dataset in self.datasets]
+        if len(set(aliases)) != len(aliases):
+            raise ValueError("dataset aliases must be unique")
+        if len(set(self.expected_columns)) != len(self.expected_columns):
+            raise ValueError("expected columns must be unique")
+        return self
 
 
 class ExpressionOp(StrEnum):
@@ -144,7 +186,7 @@ class Expression(StrictModel):
             ExpressionOp.DIVIDE: (2, 2),
             ExpressionOp.DATE_DIFF: (2, 2),
             ExpressionOp.DATE_TRUNC: (1, 1),
-            ExpressionOp.COALESCE: (1, 20),
+            ExpressionOp.COALESCE: (1, MAX_EXPRESSION_ARGUMENTS),
             ExpressionOp.WHEN: (3, 3),
         }
         lower, upper = arity[self.op]
@@ -156,6 +198,10 @@ class Expression(StrictModel):
             raise ValueError("only column expressions may set 'column'")
         if self.op is ExpressionOp.DATE_TRUNC and not isinstance(self.value, str):
             raise ValueError("date_trunc requires a string unit in 'value'")
+        if self.op not in {ExpressionOp.LITERAL, ExpressionOp.DATE_TRUNC} and self.value is not None:
+            raise ValueError(f"{self.op} does not accept 'value'")
+        if isinstance(self.value, str) and len(self.value) > MAX_LITERAL_CHARS:
+            raise ValueError(f"expression values cannot exceed {MAX_LITERAL_CHARS} characters")
         return self
 
 
@@ -205,15 +251,15 @@ class ProjectStep(StrictModel):
     type: Literal["project"] = "project"
     output: Identifier
     input: Identifier
-    columns: tuple[NamedExpression, ...] = Field(min_length=1)
+    columns: tuple[NamedExpression, ...] = Field(min_length=1, max_length=MAX_PROJECT_COLUMNS)
 
 
 class AggregateStep(StrictModel):
     type: Literal["aggregate"] = "aggregate"
     output: Identifier
     input: Identifier
-    group_by: tuple[NamedExpression, ...] = ()
-    aggregations: tuple[AggregateExpression, ...] = Field(min_length=1)
+    group_by: tuple[NamedExpression, ...] = Field(default=(), max_length=MAX_GROUP_KEYS)
+    aggregations: tuple[AggregateExpression, ...] = Field(min_length=1, max_length=MAX_AGGREGATIONS)
 
 
 class SortExpression(StrictModel):
@@ -226,14 +272,14 @@ class SortStep(StrictModel):
     type: Literal["sort"] = "sort"
     output: Identifier
     input: Identifier
-    by: tuple[SortExpression, ...] = Field(min_length=1)
+    by: tuple[SortExpression, ...] = Field(min_length=1, max_length=MAX_SORT_KEYS)
 
 
 class LimitStep(StrictModel):
     type: Literal["limit"] = "limit"
     output: Identifier
     input: Identifier
-    count: int = Field(gt=0, le=10_000)
+    count: int = Field(gt=0, le=MAX_RESULT_ROWS_HARD)
 
 
 type AnalysisStep = Annotated[
@@ -244,9 +290,16 @@ type AnalysisStep = Annotated[
 
 class AnalysisIR(StrictModel):
     version: Literal["1"] = "1"
-    inputs: tuple[DatasetSelection, ...] = Field(min_length=1, max_length=8)
-    steps: tuple[AnalysisStep, ...] = Field(min_length=1, max_length=30)
+    inputs: tuple[DatasetSelection, ...] = Field(min_length=1, max_length=MAX_IR_INPUTS)
+    steps: tuple[AnalysisStep, ...] = Field(min_length=1, max_length=MAX_IR_STEPS)
     output: Identifier
+
+    @model_validator(mode="after")
+    def unique_input_aliases(self) -> AnalysisIR:
+        aliases = [dataset.alias for dataset in self.inputs]
+        if len(set(aliases)) != len(aliases):
+            raise ValueError("input aliases must be unique")
+        return self
 
 
 class GeneratedAnalysis(StrictModel):
@@ -276,7 +329,7 @@ class ExecutionResult(StrictModel):
 
 
 class ResultExplanation(StrictModel):
-    summary: str
+    summary: Annotated[str, StringConstraints(min_length=1, max_length=8_000)]
 
 
 class AnalysisResponse(StrictModel):

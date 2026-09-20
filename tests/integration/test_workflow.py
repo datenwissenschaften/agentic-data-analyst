@@ -15,6 +15,7 @@ from agentic_data_analyst.catalog.local import LocalParquetCatalog
 from agentic_data_analyst.execution import SparkAnalysisRunner, SparkCompiler, SparkSessionFactory
 from agentic_data_analyst.guardrails import AnalysisValidator
 from agentic_data_analyst.llm import FakeLLMClient
+from agentic_data_analyst.policy import AnalysisPolicy
 from agentic_data_analyst.workflow import AnalysisWorkflow
 
 
@@ -27,7 +28,7 @@ def test_natural_language_to_executed_spark_result(
 ) -> None:
     llm = FakeLLMClient(llm_responses)
     validator = AnalysisValidator(catalog, approved_data_root=sample_data_dir)
-    compiler = SparkCompiler(catalog)
+    compiler = SparkCompiler()
     workflow = AnalysisWorkflow(
         catalog=catalog,
         discovery=MetadataDiscoveryAgent(llm),
@@ -41,7 +42,7 @@ def test_natural_language_to_executed_spark_result(
             session_factory=spark_sessions,
         ),
         interpreter=InterpretationAgent(llm),
-        max_result_rows=100,
+        policy=AnalysisPolicy(max_result_rows=100),
     )
 
     app = create_app(workflow)

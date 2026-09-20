@@ -17,18 +17,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-      - name: Install project
-        run: python -m pip install --upgrade pip && python -m pip install -e '.[dev]'
+      - name: Install Poetry
+        run: python -m pip install 'poetry==2.3.1'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-${{ runner.os }}-py312-${{ hashFiles('poetry.lock') }}
+          restore-keys: poetry-${{ runner.os }}-py312-
+      - name: Install locked dependencies
+        run: poetry sync --extras dev --no-interaction
       - name: Ruff lint
-        run: ruff check .
+        run: poetry run ruff check .
       - name: Ruff format
-        run: ruff format --check .
+        run: poetry run ruff format --check .
       - name: Mypy
-        run: mypy
+        run: poetry run mypy
       - name: Tests
-        run: pytest
+        run: poetry run pytest

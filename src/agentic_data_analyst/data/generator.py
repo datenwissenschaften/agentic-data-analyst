@@ -17,6 +17,57 @@ SEED = 20_250_601
 ANCHOR = datetime(2025, 6, 1, tzinfo=UTC)
 DATASET_NAMES = ("players", "sessions", "matches", "events", "purchases")
 
+SCHEMAS = {
+    "players": pa.schema(
+        [
+            pa.field("player_id", pa.string(), nullable=False),
+            pa.field("signup_at", pa.timestamp("us", tz="UTC"), nullable=False),
+            pa.field("segment", pa.string(), nullable=False),
+            pa.field("region", pa.string(), nullable=False),
+            pa.field("acquisition_channel", pa.string(), nullable=False),
+        ]
+    ),
+    "sessions": pa.schema(
+        [
+            pa.field("session_id", pa.string(), nullable=False),
+            pa.field("player_id", pa.string(), nullable=False),
+            pa.field("session_start", pa.timestamp("us", tz="UTC"), nullable=False),
+            pa.field("session_end", pa.timestamp("us", tz="UTC"), nullable=False),
+            pa.field("duration_minutes", pa.float64(), nullable=False),
+            pa.field("device", pa.string(), nullable=False),
+        ]
+    ),
+    "matches": pa.schema(
+        [
+            pa.field("match_id", pa.string(), nullable=False),
+            pa.field("player_id", pa.string(), nullable=False),
+            pa.field("match_start", pa.timestamp("us", tz="UTC"), nullable=False),
+            pa.field("mode", pa.string(), nullable=False),
+            pa.field("outcome", pa.string(), nullable=False),
+            pa.field("score", pa.int64(), nullable=False),
+        ]
+    ),
+    "events": pa.schema(
+        [
+            pa.field("event_id", pa.string(), nullable=False),
+            pa.field("player_id", pa.string(), nullable=False),
+            pa.field("session_id", pa.string(), nullable=False),
+            pa.field("event_time", pa.timestamp("us", tz="UTC"), nullable=False),
+            pa.field("event_type", pa.string(), nullable=False),
+        ]
+    ),
+    "purchases": pa.schema(
+        [
+            pa.field("purchase_id", pa.string(), nullable=False),
+            pa.field("player_id", pa.string(), nullable=False),
+            pa.field("purchased_at", pa.timestamp("us", tz="UTC"), nullable=False),
+            pa.field("product_type", pa.string(), nullable=False),
+            pa.field("amount", pa.float64(), nullable=False),
+            pa.field("currency", pa.string(), nullable=False),
+        ]
+    ),
+}
+
 METADATA: dict[str, dict[str, Any]] = {
     "players": {
         "description": "Player account, acquisition, geography, and behavioral segment attributes.",
@@ -119,6 +170,8 @@ METADATA: dict[str, dict[str, Any]] = {
 
 def generate(output_dir: Path, *, player_count: int = 240, seed: int = SEED, force: bool = False) -> None:
     """Write a reproducible data snapshot and catalog annotations."""
+    if player_count < 1:
+        raise ValueError("player_count must be greater than zero")
     output_dir.mkdir(parents=True, exist_ok=True)
     existing = [output_dir / f"{name}.parquet" for name in DATASET_NAMES]
     if any(path.exists() for path in existing) and not force:
@@ -131,7 +184,11 @@ def generate(output_dir: Path, *, player_count: int = 240, seed: int = SEED, for
 
     tables = _build_rows(player_count=player_count, seed=seed)
     for name, rows in tables.items():
-        pq.write_table(pa.Table.from_pylist(rows), output_dir / f"{name}.parquet", compression="snappy")
+        pq.write_table(
+            pa.Table.from_pylist(rows, schema=SCHEMAS[name]),
+            output_dir / f"{name}.parquet",
+            compression="snappy",
+        )
         metadata_path = output_dir / f"{name}.metadata.json"
         metadata_path.write_text(json.dumps(METADATA[name], indent=2) + "\n", encoding="utf-8")
 

@@ -22,6 +22,7 @@ from agentic_data_analyst.models import (
     AnalyticsQuestion,
     GeneratedAnalysis,
 )
+from agentic_data_analyst.policy import AnalysisPolicy
 
 StageObserver = Callable[[str, int], None]
 
@@ -40,7 +41,7 @@ class AnalysisWorkflow:
         compiler: SparkCompiler,
         runner: SparkAnalysisRunner,
         interpreter: InterpretationAgent | None,
-        max_result_rows: int,
+        policy: AnalysisPolicy | None = None,
         observer: StageObserver | None = None,
     ) -> None:
         self._catalog = catalog
@@ -51,16 +52,16 @@ class AnalysisWorkflow:
         self._compiler = compiler
         self._runner = runner
         self._interpreter = interpreter
-        self._max_result_rows = max_result_rows
+        self._policy = policy or AnalysisPolicy()
         self._observer = observer
 
     async def analyze(self, request: AnalyticsQuestion) -> AnalysisResponse:
         durations: dict[str, int] = {}
 
         started = time.perf_counter()
-        candidates = self._catalog.search(request.question, limit=8)
+        candidates = self._catalog.search(request.question, limit=self._policy.max_catalog_candidates)
         if not candidates:
-            candidates = self._catalog.list_datasets()[:8]
+            candidates = self._catalog.list_datasets()[: self._policy.max_catalog_candidates]
         selection = await self._discovery.select(request, candidates)
         self._record("discovery", started, durations)
 
@@ -70,16 +71,21 @@ class AnalysisWorkflow:
         self._record("planning", started, durations)
 
         started = time.perf_counter()
-        ir = await self._generator.generate(request, plan, metadata, max_result_rows=self._max_result_rows)
+        ir = await self._generator.generate(
+            request, plan, metadata, max_result_rows=self._policy.max_result_rows
+        )
         generated = GeneratedAnalysis(ir=ir, pyspark_preview=self._compiler.render(ir))
         self._record("generation", started, durations)
 
         started = time.perf_counter()
-        validation = self._validator.validate(ir)
+        outcome = self._validator.authorize(ir)
+        validation = outcome.result
         self._record("validation", started, durations)
-        if not validation.is_valid:
+        if not validation.is_valid or outcome.analysis is None:
             codes = ", ".join(issue.code for issue in validation.issues)
             raise UnsafeAnalysisError(f"Generated analysis was rejected: {codes}")
+        if tuple(plan.expected_columns) != outcome.analysis.output_columns:
+            raise UnsafeAnalysisError("Generated output columns differ from the validated analysis plan")
 
         started = time.perf_counter()
         result = await asyncio.to_thread(self._runner.execute, ir)
@@ -101,6 +107,9 @@ class AnalysisWorkflow:
             explanation=explanation,
             stage_durations_ms=durations,
         )
+
+    def close(self) -> None:
+        self._runner.close()
 
     def _record(self, name: str, started: float, durations: dict[str, int]) -> None:
         duration = round((time.perf_counter() - started) * 1_000)

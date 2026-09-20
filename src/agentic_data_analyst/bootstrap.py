@@ -19,24 +19,26 @@ def build_workflow(settings: Settings) -> AnalysisWorkflow:
     """Wire production adapters at one explicit composition boundary."""
     if settings.openrouter_api_key is None:
         raise LLMError("OPENROUTER_API_KEY is required for the production workflow")
+    policy = settings.analysis_policy
     catalog = LocalParquetCatalog(settings.catalog_path)
     llm = OpenRouterClient(
-        api_key=settings.openrouter_api_key,
+        api_key=settings.openrouter_api_key.get_secret_value(),
         model=settings.openrouter_model,
-        base_url=settings.openrouter_base_url,
+        base_url=str(settings.openrouter_base_url),
         timeout_seconds=settings.llm_timeout_seconds,
+        max_response_bytes=settings.max_llm_response_bytes,
     )
     validator = AnalysisValidator(
         catalog,
         approved_data_root=settings.catalog_path,
-        max_result_rows=settings.max_result_rows,
+        policy=policy,
     )
-    compiler = SparkCompiler(catalog)
+    compiler = SparkCompiler()
     runner = SparkAnalysisRunner(
         validator=validator,
         compiler=compiler,
         session_factory=SparkSessionFactory(master=settings.spark_master),
-        max_result_rows=settings.max_result_rows,
+        execution_timeout_seconds=settings.execution_timeout_seconds,
     )
     return AnalysisWorkflow(
         catalog=catalog,
@@ -47,5 +49,5 @@ def build_workflow(settings: Settings) -> AnalysisWorkflow:
         compiler=compiler,
         runner=runner,
         interpreter=InterpretationAgent(llm),
-        max_result_rows=settings.max_result_rows,
+        policy=policy,
     )

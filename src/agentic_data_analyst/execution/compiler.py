@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from pyspark.sql import Column, DataFrame, SparkSession
 from pyspark.sql import functions as F
 
-from agentic_data_analyst.catalog.base import Catalog
+from agentic_data_analyst.guardrails.validated import ValidatedAnalysis
 from agentic_data_analyst.models import (
     AggregateExpression,
     AggregateFunction,
@@ -29,15 +29,13 @@ if TYPE_CHECKING:
 class SparkCompiler:
     """Translate validated IR nodes directly to Spark's typed DataFrame API."""
 
-    def __init__(self, catalog: Catalog) -> None:
-        self._catalog = catalog
-
-    def compile(self, ir: AnalysisIR, spark: SparkSession) -> DataFrame:
+    def compile(self, analysis: ValidatedAnalysis, spark: SparkSession) -> DataFrame:
+        ir = analysis.ir
         frames: dict[str, DataFrame] = {}
         for selected in ir.inputs:
-            metadata = self._catalog.get_dataset(selected.dataset)
-            frames[selected.alias] = spark.read.parquet(metadata.path).select(
-                *(F.col(column).alias(f"{selected.alias}__{column}") for column in selected.columns)
+            authorized = analysis.dataset_for_alias(selected.alias)
+            frames[selected.alias] = spark.read.parquet(str(authorized.path)).select(
+                *(F.col(column).alias(f"{selected.alias}__{column}") for column in authorized.columns)
             )
 
         for step in ir.steps:
@@ -71,6 +69,8 @@ class SparkCompiler:
                 frames[step.output] = frames[step.input].orderBy(*ordering)
             elif isinstance(step, LimitStep):
                 frames[step.output] = frames[step.input].limit(step.count)
+            else:
+                raise ValueError(f"Unsupported analysis step: {type(step).__name__}")
         return frames[ir.output]
 
     def render(self, ir: AnalysisIR) -> str:

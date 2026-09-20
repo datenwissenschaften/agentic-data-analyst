@@ -6,7 +6,7 @@ from collections import deque
 from collections.abc import Iterable, Sequence
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from agentic_data_analyst.errors import LLMError
 from agentic_data_analyst.llm.base import Message, T
@@ -25,4 +25,7 @@ class FakeLLMClient:
             raise LLMError("Fake LLM has no queued response")
         response = self._responses.popleft()
         payload = response.model_dump(mode="json") if isinstance(response, BaseModel) else response
-        return response_model.model_validate(payload)
+        try:
+            return response_model.model_validate(payload)
+        except (TypeError, ValidationError) as exc:
+            raise LLMError("Fake LLM structured completion failed validation") from exc

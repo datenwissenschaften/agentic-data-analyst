@@ -59,7 +59,6 @@ Prerequisites are Python 3.12 and Java 17 or newer. The project uses Poetry for 
 ```bash
 poetry install --extras dev
 poetry run agentic-data-generate --output data/sample
-cp .env.example .env
 ```
 
 Set `OPENROUTER_API_KEY` in your environment and choose a model that supports strict
@@ -111,11 +110,14 @@ Values depend on the generated snapshot and the analysis selected by the configu
 2. The discovery model chooses the smallest useful dataset set from those candidates.
 3. The planner sees only the selected annotated schemas and returns an `AnalysisPlan`.
 4. The generator converts the plan to `spark_dataframe_ir/v1`.
-5. Validation checks catalog authorization, physical paths, selected columns, relation
-   lineage, expression complexity, supported operations, and the final row limit.
-6. The compiler maps the accepted IR to Spark DataFrame calls; it does not evaluate source
-   code supplied by the model.
-7. The runner revalidates, executes, bounds collection, and normalizes values for JSON.
+5. Validation checks catalog authorization, canonical physical paths, selected columns,
+   relation lineage, centralized complexity limits, supported operations, and the final row
+   limit. A successful check creates an internal capability containing the authorized path
+   and output-lineage snapshot.
+6. The compiler accepts that capability and maps the IR to Spark DataFrame calls; it does
+   not look paths up again or evaluate source code supplied by the model.
+7. Immediately before execution, the runner repeats authorization, collects at most the
+   requested maximum plus one truncation sentinel, and normalizes values for JSON.
 8. An optional structured model call explains the result rows.
 
 Each stage is directly testable and reports elapsed time. Provider prompts remain internal
@@ -126,14 +128,22 @@ and are not returned by the API.
 The execution boundary uses representational safety. The IR has no nodes for imports,
 filesystem APIs, environment access, networking, processes, dynamic evaluation, Spark SQL,
 or writes. Pydantic rejects unknown operations and fields before semantic validation. The
-validator then resolves every dataset and column against the catalog, verifies that Parquet
-paths remain under the configured data root, checks intermediate relation lineage, limits
-expression size, and requires a bounded final output. The runner performs the same
-validation immediately before execution.
+validator then resolves every dataset and column against the catalog, canonicalizes each
+existing Parquet path and verifies containment with a path-aware check, validates
+intermediate relation lineage, enforces plan and expression complexity limits, and requires
+a bounded final output. The runner performs authorization immediately before execution and
+the compiler can read only the resulting path snapshot.
+
+Provider calls use strict JSON Schema, an explicit timeout, and a bounded response body.
+Questions and catalog text are marked as untrusted prompt data; prompt wording is not the
+security boundary. See [SECURITY.md](SECURITY.md) for the threat model and reporting process.
 
 This is defense in depth for the generated analysis, not a general hostile multi-tenant
 sandbox. Spark and the API still run in the application process, the OpenRouter provider
 receives the question and selected metadata, and operators control the catalog directory.
+The execution deadline uses Spark job-group cancellation and is best effort; it cannot
+forcibly stop blocked JVM or native code.
+
 For untrusted tenants, add process or container isolation, resource quotas, authentication,
 request limits, audit storage, and provider data-governance controls.
 
@@ -184,7 +194,8 @@ docker run --rm -p 8000:8000 \
   semantic date resolver yet.
 - Catalog ranking is lexical and local. It does not provide statistics, access control, or
   an enterprise metastore implementation.
-- Execution is local Spark without per-request CPU, memory, or wall-clock quotas.
+- Execution is local in-process Spark without per-request CPU or memory quotas. Deadline
+  cancellation is cooperative and does not provide a hard wall-clock bound.
 - There is no conversation state, clarification turn, authentication, or persistent audit
   store.
 

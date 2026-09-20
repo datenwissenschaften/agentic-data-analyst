@@ -19,3 +19,7 @@ class UnsafeAnalysisError(AnalystError):
 
 class ExecutionError(AnalystError):
     """Spark could not execute an otherwise valid analysis."""
+
+
+class ExecutionTimeoutError(ExecutionError):
+    """Spark cancellation was requested after the configured deadline."""

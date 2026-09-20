@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Sequence
 from typing import Any
@@ -10,6 +11,35 @@ import httpx
 
 from agentic_data_analyst.errors import LLMError
 from agentic_data_analyst.llm.base import Message, T
+
+
+def _to_strict_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite a pydantic schema into the subset OpenAI's strict mode accepts.
+
+    Strict structured outputs require every property to be listed in
+    'required' (optionality is expressed via nullable types instead of
+    omission), reject the OpenAPI-style 'discriminator'/'oneOf' pydantic
+    emits for discriminated unions (using 'anyOf' instead), and reject
+    'default' alongside other keywords such as '$ref'.
+    """
+    node = copy.deepcopy(schema)
+    _rewrite_strict_json_schema(node)
+    return node
+
+
+def _rewrite_strict_json_schema(node: object) -> None:
+    if isinstance(node, dict):
+        if node.get("type") == "object" and "properties" in node:
+            node["required"] = list(node["properties"].keys())
+        if "oneOf" in node:
+            node["anyOf"] = node.pop("oneOf")
+        node.pop("discriminator", None)
+        node.pop("default", None)
+        for value in node.values():
+            _rewrite_strict_json_schema(value)
+    elif isinstance(node, list):
+        for item in node:
+            _rewrite_strict_json_schema(item)
 
 
 class OpenRouterClient:
@@ -50,7 +80,7 @@ class OpenRouterClient:
                 "json_schema": {
                     "name": response_model.__name__.lower(),
                     "strict": True,
-                    "schema": response_model.model_json_schema(),
+                    "schema": _to_strict_json_schema(response_model.model_json_schema()),
                 },
             },
             "provider": {"require_parameters": True},

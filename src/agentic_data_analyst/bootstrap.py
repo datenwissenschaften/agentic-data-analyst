@@ -42,12 +42,12 @@ def build_workflow(settings: Settings) -> AnalysisWorkflow:
     )
     return AnalysisWorkflow(
         catalog=catalog,
-        discovery=MetadataDiscoveryAgent(llm),
-        planner=PlanningAgent(llm),
-        generator=GenerationAgent(llm),
+        discovery=MetadataDiscoveryAgent(llm, max_attempts=settings.llm_max_attempts),
+        planner=PlanningAgent(llm, max_attempts=settings.llm_max_attempts),
+        generator=GenerationAgent(llm, max_attempts=settings.llm_max_attempts),
         validator=validator,
         compiler=compiler,
         runner=runner,
-        interpreter=InterpretationAgent(llm),
+        interpreter=InterpretationAgent(llm, max_attempts=settings.llm_max_attempts),
         policy=policy,
     )

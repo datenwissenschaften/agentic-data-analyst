@@ -8,5 +8,6 @@
 __pycache__
 *.pyc
 data/sample/*.parquet
+data/sample/*.json
 tests
 docs

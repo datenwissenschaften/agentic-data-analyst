@@ -24,6 +24,7 @@ class Settings(BaseModel):
     openrouter_model: str = Field(default="openai/gpt-4.1-mini", min_length=1, max_length=200)
     openrouter_base_url: AnyHttpUrl = AnyHttpUrl("https://openrouter.ai/api/v1")
     llm_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
+    llm_max_attempts: int = Field(default=2, ge=1, le=5)
     max_llm_response_bytes: int = Field(default=1_000_000, ge=1_024, le=10_000_000)
     execution_timeout_seconds: float | None = Field(default=120.0, gt=0, le=3_600)
 
@@ -66,6 +67,7 @@ class Settings(BaseModel):
                 "openrouter_model": source.get("OPENROUTER_MODEL", "openai/gpt-4.1-mini"),
                 "openrouter_base_url": source.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
                 "llm_timeout_seconds": source.get("LLM_TIMEOUT_SECONDS", "60"),
+                "llm_max_attempts": source.get("LLM_MAX_ATTEMPTS", "2"),
                 "max_llm_response_bytes": source.get("MAX_LLM_RESPONSE_BYTES", "1000000"),
                 "execution_timeout_seconds": source.get("EXECUTION_TIMEOUT_SECONDS", "120"),
             }

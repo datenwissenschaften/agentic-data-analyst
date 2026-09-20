@@ -10,7 +10,8 @@ __pycache__/
 dist/
 build/
 .env
-data/sample/*.parquet/
+data/sample/*.parquet
+data/sample/*.json
 spark-warehouse/
 metastore_db/
 derby.log

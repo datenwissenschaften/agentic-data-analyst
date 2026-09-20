@@ -28,6 +28,26 @@ def test_discovery_rejects_hallucinated_dataset() -> None:
         )
 
 
+def test_discovery_retries_after_hallucinated_dataset() -> None:
+    llm = FakeLLMClient(
+        [
+            {"datasets": ["secret_table"], "rationale": "bad"},
+            {"datasets": ["sessions"], "rationale": "good"},
+        ]
+    )
+    agent = MetadataDiscoveryAgent(llm, max_attempts=2)
+
+    result = asyncio.run(
+        agent.select(
+            AnalyticsQuestion(question="Show activity"),
+            [CatalogCandidate(name="sessions", description="activity")],
+        )
+    )
+
+    assert result.datasets == ("sessions",)
+    assert len(llm.calls) == 2
+
+
 def test_planner_receives_selected_schema_without_physical_path(
     analysis_plan: AnalysisPlan, catalog: LocalParquetCatalog
 ) -> None:

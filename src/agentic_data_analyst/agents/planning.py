@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 from agentic_data_analyst.errors import LLMError
 from agentic_data_analyst.llm.base import LLMClient, Message
+from agentic_data_analyst.llm.retry import complete_structured_with_retry
 from agentic_data_analyst.models import (
     AnalysisPlan,
     AnalyticsQuestion,
@@ -19,15 +20,24 @@ from agentic_data_analyst.models import (
 class MetadataDiscoveryAgent:
     """Select likely datasets from lightweight catalog search results."""
 
-    def __init__(self, llm: LLMClient) -> None:
+    def __init__(self, llm: LLMClient, *, max_attempts: int = 1) -> None:
         self._llm = llm
+        self._max_attempts = max_attempts
 
     async def select(
         self, question: AnalyticsQuestion, candidates: Sequence[CatalogCandidate]
     ) -> DiscoverySelection:
         if not candidates:
             raise LLMError("Catalog search returned no candidate datasets")
-        response = await self._llm.complete_structured(
+        allowed = {candidate.name for candidate in candidates}
+
+        def check(response: DiscoverySelection) -> None:
+            unknown = set(response.datasets) - allowed
+            if unknown:
+                raise LLMError(f"Discovery selected datasets outside the candidate set: {sorted(unknown)}")
+
+        return await complete_structured_with_retry(
+            self._llm,
             messages=(
                 Message(
                     role="system",
@@ -50,23 +60,32 @@ class MetadataDiscoveryAgent:
                 ),
             ),
             response_model=DiscoverySelection,
+            check=check,
+            max_attempts=self._max_attempts,
         )
-        allowed = {candidate.name for candidate in candidates}
-        unknown = set(response.datasets) - allowed
-        if unknown:
-            raise LLMError(f"Discovery selected datasets outside the candidate set: {sorted(unknown)}")
-        return response
 
 
 class PlanningAgent:
     """Create an executable-grain plan from only the selected schemas."""
 
-    def __init__(self, llm: LLMClient) -> None:
+    def __init__(self, llm: LLMClient, *, max_attempts: int = 1) -> None:
         self._llm = llm
+        self._max_attempts = max_attempts
 
     async def plan(self, question: AnalyticsQuestion, metadata: Sequence[DatasetMetadata]) -> AnalysisPlan:
         schemas = [dataset.model_dump(exclude={"path"}) for dataset in metadata]
-        plan = await self._llm.complete_structured(
+        available = {dataset.name: {column.name for column in dataset.columns} for dataset in metadata}
+
+        def check(plan: AnalysisPlan) -> None:
+            for selected in plan.datasets:
+                if selected.dataset not in available:
+                    raise LLMError(f"Plan references undiscovered dataset: {selected.dataset}")
+                unknown = set(selected.columns) - available[selected.dataset]
+                if unknown:
+                    raise LLMError(f"Plan references unknown columns in {selected.dataset}: {sorted(unknown)}")
+
+        return await complete_structured_with_retry(
+            self._llm,
             messages=(
                 Message(
                     role="system",
@@ -83,12 +102,6 @@ class PlanningAgent:
                 ),
             ),
             response_model=AnalysisPlan,
+            check=check,
+            max_attempts=self._max_attempts,
         )
-        available = {dataset.name: {column.name for column in dataset.columns} for dataset in metadata}
-        for selected in plan.datasets:
-            if selected.dataset not in available:
-                raise LLMError(f"Plan references undiscovered dataset: {selected.dataset}")
-            unknown = set(selected.columns) - available[selected.dataset]
-            if unknown:
-                raise LLMError(f"Plan references unknown columns in {selected.dataset}: {sorted(unknown)}")
-        return plan

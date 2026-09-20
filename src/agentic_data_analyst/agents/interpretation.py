@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from agentic_data_analyst.llm.base import LLMClient, Message
+from agentic_data_analyst.llm.retry import complete_structured_with_retry
 from agentic_data_analyst.models import (
     AnalysisPlan,
     AnalyticsQuestion,
@@ -16,11 +17,13 @@ from agentic_data_analyst.models import (
 class InterpretationAgent:
     """Explain materialized rows without exposing prompts through the API."""
 
-    def __init__(self, llm: LLMClient) -> None:
+    def __init__(self, llm: LLMClient, *, max_attempts: int = 1) -> None:
         self._llm = llm
+        self._max_attempts = max_attempts
 
     async def explain(self, question: AnalyticsQuestion, plan: AnalysisPlan, result: ExecutionResult) -> str:
-        response = await self._llm.complete_structured(
+        response = await complete_structured_with_retry(
+            self._llm,
             messages=(
                 Message(
                     role="system",
@@ -43,5 +46,6 @@ class InterpretationAgent:
                 ),
             ),
             response_model=ResultExplanation,
+            max_attempts=self._max_attempts,
         )
         return response.summary

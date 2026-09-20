@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -22,6 +23,8 @@ from agentic_data_analyst.errors import (
 )
 from agentic_data_analyst.models import AnalysisResponse, AnalyticsQuestion, StrictModel
 from agentic_data_analyst.workflow import AnalysisWorkflow
+
+logger = logging.getLogger(__name__)
 
 
 class HealthResponse(StrictModel):
@@ -67,7 +70,8 @@ def create_app(workflow: AnalysisWorkflow | None = None) -> FastAPI:
 
     @application.exception_handler(RequestValidationError)
     async def request_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
-        del request, exc
+        del request
+        logger.warning("Request validation failed: %s", exc)
         return _error_response(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "invalid_request",
@@ -76,7 +80,8 @@ def create_app(workflow: AnalysisWorkflow | None = None) -> FastAPI:
 
     @application.exception_handler(UnsafeAnalysisError)
     async def unsafe_analysis(request: Request, exc: UnsafeAnalysisError) -> JSONResponse:
-        del request, exc
+        del request
+        logger.warning("Generated analysis was rejected: %s", exc, exc_info=exc)
         return _error_response(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "unsafe_analysis",
@@ -85,12 +90,14 @@ def create_app(workflow: AnalysisWorkflow | None = None) -> FastAPI:
 
     @application.exception_handler(LLMError)
     async def llm_error(request: Request, exc: LLMError) -> JSONResponse:
-        del request, exc
+        del request
+        logger.error("Model completion failed: %s", exc, exc_info=exc)
         return _error_response(status.HTTP_502_BAD_GATEWAY, "llm_error", "Model completion failed")
 
     @application.exception_handler(CatalogError)
     async def catalog_error(request: Request, exc: CatalogError) -> JSONResponse:
-        del request, exc
+        del request
+        logger.error("Catalog operation failed: %s", exc, exc_info=exc)
         return _error_response(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "catalog_error",
@@ -99,7 +106,8 @@ def create_app(workflow: AnalysisWorkflow | None = None) -> FastAPI:
 
     @application.exception_handler(ExecutionError)
     async def execution_error(request: Request, exc: ExecutionError) -> JSONResponse:
-        del request, exc
+        del request
+        logger.error("Analysis execution failed: %s", exc, exc_info=exc)
         return _error_response(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             "execution_error",
@@ -108,7 +116,8 @@ def create_app(workflow: AnalysisWorkflow | None = None) -> FastAPI:
 
     @application.exception_handler(ExecutionTimeoutError)
     async def execution_timeout(request: Request, exc: ExecutionTimeoutError) -> JSONResponse:
-        del request, exc
+        del request
+        logger.error("Analysis execution timed out: %s", exc, exc_info=exc)
         return _error_response(
             status.HTTP_504_GATEWAY_TIMEOUT,
             "execution_timeout",
@@ -117,7 +126,8 @@ def create_app(workflow: AnalysisWorkflow | None = None) -> FastAPI:
 
     @application.exception_handler(AnalystError)
     async def analyst_error(request: Request, exc: AnalystError) -> JSONResponse:
-        del request, exc
+        del request
+        logger.error("Analysis request failed: %s", exc, exc_info=exc)
         return _error_response(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             "analyst_error",
@@ -126,7 +136,8 @@ def create_app(workflow: AnalysisWorkflow | None = None) -> FastAPI:
 
     @application.exception_handler(Exception)
     async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:
-        del request, exc
+        del request
+        logger.exception("Unexpected error handling request", exc_info=exc)
         return _error_response(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             "internal_error",

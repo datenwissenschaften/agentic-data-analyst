@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import threading
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
 from agentic_data_analyst.catalog.local import LocalParquetCatalog
-from agentic_data_analyst.errors import ExecutionTimeoutError
+from agentic_data_analyst.errors import ExecutionError, ExecutionTimeoutError, UnsafeAnalysisError
 from agentic_data_analyst.execution import SparkAnalysisRunner, SparkCompiler, SparkSessionFactory
 from agentic_data_analyst.guardrails import AnalysisValidator
 from agentic_data_analyst.guardrails.validated import ValidatedAnalysis
@@ -43,9 +44,12 @@ def _binary(op: ExpressionOp, left: Expression, right: Expression) -> Expression
 
 
 def test_compiler_renders_reviewable_pyspark_preview(
-    catalog: LocalParquetCatalog, analysis_ir: AnalysisIR
+    catalog: LocalParquetCatalog, sample_data_dir: Path, analysis_ir: AnalysisIR
 ) -> None:
-    preview = SparkCompiler().render(analysis_ir)
+    outcome = AnalysisValidator(catalog, approved_data_root=sample_data_dir).authorize(analysis_ir)
+    assert outcome.analysis is not None
+
+    preview = SparkCompiler().render(outcome.analysis)
 
     assert 'spark.read.parquet(catalog.get_dataset("players").path)' in preview
     assert ".groupBy(" in preview
@@ -220,6 +224,9 @@ def test_every_expression_operation_compiles_and_executes(
         output="result",
     )
     validator = AnalysisValidator(catalog, approved_data_root=sample_data_dir)
+    outcome = validator.authorize(ir)
+    assert outcome.analysis is not None
+    preview = SparkCompiler().render(outcome.analysis)
     runner = SparkAnalysisRunner(
         validator=validator,
         compiler=SparkCompiler(),
@@ -232,6 +239,7 @@ def test_every_expression_operation_compiles_and_executes(
     assert result.rows[0]["literal_value"] == "safe"
     assert result.rows[0]["when_value"] == "positive"
     assert set(result.columns) == {column.alias for column in ir.steps[1].columns}
+    assert all(f'.alias("{column.alias}")' in preview for column in ir.steps[1].columns)
 
 
 def test_every_aggregate_function_compiles_and_executes(
@@ -294,9 +302,14 @@ def test_every_aggregate_function_compiles_and_executes(
 
     result = runner.execute(ir)
 
+    outcome = AnalysisValidator(catalog, approved_data_root=sample_data_dir).authorize(ir)
+    assert outcome.analysis is not None
+    preview = SparkCompiler().render(outcome.analysis)
+
     assert result.row_count == 3
     assert all(int(row["rows"]) > 0 for row in result.rows)
     assert all(float(row["minimum"]) <= float(row["maximum"]) for row in result.rows)
+    assert all(f"F.{function.value}(" in preview for function in AggregateFunction)
 
 
 class MutableCatalog:
@@ -429,3 +442,90 @@ def test_execution_deadline_requests_spark_job_group_cancellation(
         runner.execute(_path_only_ir())
 
     assert sessions.session.sparkContext.cancelled.is_set()
+
+
+def test_runner_rejects_invalid_ir_before_initializing_spark(
+    catalog: LocalParquetCatalog,
+    sample_data_dir: Path,
+) -> None:
+    sessions = CancellableSessionFactory()
+    invalid = _path_only_ir().model_copy(
+        update={"steps": (LimitStep(output="result", input="missing", count=1),)}
+    )
+    runner = SparkAnalysisRunner(
+        validator=AnalysisValidator(catalog, approved_data_root=sample_data_dir),
+        compiler=SparkCompiler(),
+        session_factory=cast(SparkSessionFactory, sessions),
+    )
+
+    with pytest.raises(UnsafeAnalysisError, match="unknown_relation"):
+        runner.execute(invalid)
+
+
+class WrongSchemaFrame(BlockingFrame):
+    def __init__(self) -> None:
+        self.columns = ["unexpected"]
+
+
+class WrongSchemaCompiler:
+    def compile(self, analysis: ValidatedAnalysis, spark: Any) -> WrongSchemaFrame:
+        return WrongSchemaFrame()
+
+
+class BrokenSessionFactory:
+    def get(self) -> Any:
+        raise RuntimeError("session initialization secret")
+
+    def stop(self) -> None:
+        pass
+
+
+class FailingCompiler:
+    def compile(self, analysis: ValidatedAnalysis, spark: Any) -> Any:
+        raise RuntimeError("compiler secret")
+
+
+def test_runner_rejects_compiler_lineage_mismatch(
+    catalog: LocalParquetCatalog,
+    sample_data_dir: Path,
+) -> None:
+    sessions = CancellableSessionFactory()
+    runner = SparkAnalysisRunner(
+        validator=AnalysisValidator(catalog, approved_data_root=sample_data_dir),
+        compiler=cast(SparkCompiler, WrongSchemaCompiler()),
+        session_factory=cast(SparkSessionFactory, sessions),
+    )
+
+    with pytest.raises(ExecutionError, match="schema differs"):
+        runner.execute(_path_only_ir())
+
+
+def test_runner_sanitizes_session_and_compiler_failures(
+    catalog: LocalParquetCatalog,
+    sample_data_dir: Path,
+) -> None:
+    validator = AnalysisValidator(catalog, approved_data_root=sample_data_dir)
+    session_runner = SparkAnalysisRunner(
+        validator=validator,
+        compiler=SparkCompiler(),
+        session_factory=cast(SparkSessionFactory, BrokenSessionFactory()),
+    )
+    with pytest.raises(ExecutionError, match="initialization failed") as session_error:
+        session_runner.execute(_path_only_ir())
+    assert "secret" not in str(session_error.value)
+
+    sessions = CancellableSessionFactory()
+    compiler_runner = SparkAnalysisRunner(
+        validator=validator,
+        compiler=cast(SparkCompiler, FailingCompiler()),
+        session_factory=cast(SparkSessionFactory, sessions),
+    )
+    with pytest.raises(ExecutionError, match="execution failed") as compiler_error:
+        compiler_runner.execute(_path_only_ir())
+    assert "secret" not in str(compiler_error.value)
+
+
+def test_result_normalization_never_emits_nonfinite_json_numbers() -> None:
+    assert SparkAnalysisRunner._normalize(float("nan")) == "nan"
+    assert SparkAnalysisRunner._normalize(float("inf")) == "inf"
+    assert SparkAnalysisRunner._normalize(Decimal("NaN")) == "NaN"

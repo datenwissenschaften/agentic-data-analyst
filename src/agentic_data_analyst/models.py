@@ -23,7 +23,10 @@ from agentic_data_analyst.policy import (
     MAX_SORT_KEYS,
 )
 
-type Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Za-z][A-Za-z0-9_]*$")]
+type Identifier = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=128, pattern=r"^[A-Za-z][A-Za-z0-9_]*$"),
+]
 type Scalar = str | int | float | bool | None
 type ResultValue = Scalar
 
@@ -31,12 +34,18 @@ type ResultValue = Scalar
 class StrictModel(BaseModel):
     """Base contract that rejects unexpected LLM-provided fields."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        strict=True,
+        allow_inf_nan=False,
+        validate_default=True,
+    )
 
 
 class ColumnMetadata(StrictModel):
     name: Identifier
-    data_type: str
+    data_type: Annotated[str, StringConstraints(min_length=1, max_length=500)]
     description: Annotated[str, StringConstraints(max_length=2_000)] = ""
     nullable: bool = True
 

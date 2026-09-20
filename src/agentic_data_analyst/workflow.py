@@ -74,7 +74,6 @@ class AnalysisWorkflow:
         ir = await self._generator.generate(
             request, plan, metadata, max_result_rows=self._policy.max_result_rows
         )
-        generated = GeneratedAnalysis(ir=ir, pyspark_preview=self._compiler.render(ir))
         self._record("generation", started, durations)
 
         started = time.perf_counter()
@@ -86,6 +85,10 @@ class AnalysisWorkflow:
             raise UnsafeAnalysisError(f"Generated analysis was rejected: {codes}")
         if tuple(plan.expected_columns) != outcome.analysis.output_columns:
             raise UnsafeAnalysisError("Generated output columns differ from the validated analysis plan")
+        generated = GeneratedAnalysis(
+            ir=ir,
+            pyspark_preview=self._compiler.render(outcome.analysis),
+        )
 
         started = time.perf_counter()
         result = await asyncio.to_thread(self._runner.execute, ir)

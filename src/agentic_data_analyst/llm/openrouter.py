@@ -7,7 +7,6 @@ from collections.abc import Sequence
 from typing import Any
 
 import httpx
-from pydantic import ValidationError
 
 from agentic_data_analyst.errors import LLMError
 from agentic_data_analyst.llm.base import Message, T
@@ -28,6 +27,10 @@ class OpenRouterClient:
     ) -> None:
         if not api_key:
             raise ValueError("OpenRouter API key must not be empty")
+        if not model:
+            raise ValueError("OpenRouter model must not be empty")
+        if timeout_seconds <= 0:
+            raise ValueError("OpenRouter timeout must be greater than zero")
         self._api_key = api_key
         self._model = model
         self._base_url = base_url.rstrip("/")
@@ -82,7 +85,7 @@ class OpenRouterClient:
             return response_model.model_validate_json(content)
         except LLMError:
             raise
-        except (httpx.HTTPError, json.JSONDecodeError, TypeError, ValidationError) as exc:
+        except (httpx.HTTPError, ValueError, TypeError, RecursionError) as exc:
             raise LLMError("OpenRouter structured completion failed") from exc
 
     async def _post_limited(

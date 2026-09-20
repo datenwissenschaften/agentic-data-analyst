@@ -1,3 +1,5 @@
+import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -6,6 +8,9 @@ import pytest
 from agentic_data_analyst.catalog.local import LocalParquetCatalog
 from agentic_data_analyst.guardrails import AnalysisValidator
 from agentic_data_analyst.models import (
+    AggregateExpression,
+    AggregateFunction,
+    AggregateStep,
     AnalysisIR,
     CatalogCandidate,
     ColumnMetadata,
@@ -106,7 +111,7 @@ def test_ir_schema_rejects_arbitrary_operations() -> None:
     }
 
     try:
-        AnalysisIR.model_validate(payload)
+        AnalysisIR.model_validate_json(json.dumps(payload))
     except ValueError as exc:
         assert "union_tag_invalid" in str(exc) or "at least 1" in str(exc)
     else:
@@ -166,6 +171,190 @@ def test_boolean_operators_reject_non_boolean_children(
     result = AnalysisValidator(catalog, approved_data_root=sample_data_dir).validate(invalid)
 
     assert "invalid_predicate" in {issue.code for issue in result.issues}
+
+
+def test_validator_rejects_operations_with_incompatible_column_types(
+    catalog: LocalParquetCatalog, sample_data_dir: Path
+) -> None:
+    invalid = _path_ir().model_copy(
+        update={
+            "steps": (
+                ProjectStep(
+                    output="projected",
+                    input="p",
+                    columns=(
+                        NamedExpression(
+                            alias="invalid_sum",
+                            expression=Expression(
+                                op=ExpressionOp.ADD,
+                                arguments=(
+                                    Expression(op=ExpressionOp.COLUMN, column="p__player_id"),
+                                    Expression(op=ExpressionOp.LITERAL, value=1),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                LimitStep(output="result", input="projected", count=1),
+            )
+        }
+    )
+
+    result = AnalysisValidator(catalog, approved_data_root=sample_data_dir).validate(invalid)
+
+    assert "invalid_expression_type" in {issue.code for issue in result.issues}
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        Expression(
+            op=ExpressionOp.EQ,
+            arguments=(
+                Expression(op=ExpressionOp.COLUMN, column="p__player_id"),
+                Expression(op=ExpressionOp.LITERAL, value=1),
+            ),
+        ),
+        Expression(
+            op=ExpressionOp.GT,
+            arguments=(
+                Expression(op=ExpressionOp.COLUMN, column="p__player_id"),
+                Expression(op=ExpressionOp.LITERAL, value=1),
+            ),
+        ),
+        Expression(
+            op=ExpressionOp.NOT,
+            arguments=(Expression(op=ExpressionOp.COLUMN, column="p__player_id"),),
+        ),
+        Expression(
+            op=ExpressionOp.TO_DATE,
+            arguments=(Expression(op=ExpressionOp.LITERAL, value=1),),
+        ),
+        Expression(
+            op=ExpressionOp.DATE_DIFF,
+            arguments=(
+                Expression(op=ExpressionOp.LITERAL, value=2),
+                Expression(op=ExpressionOp.LITERAL, value=1),
+            ),
+        ),
+        Expression(
+            op=ExpressionOp.COALESCE,
+            arguments=(
+                Expression(op=ExpressionOp.COLUMN, column="p__player_id"),
+                Expression(op=ExpressionOp.LITERAL, value=1),
+            ),
+        ),
+        Expression(
+            op=ExpressionOp.WHEN,
+            arguments=(
+                Expression(op=ExpressionOp.COLUMN, column="p__player_id"),
+                Expression(op=ExpressionOp.LITERAL, value="yes"),
+                Expression(op=ExpressionOp.LITERAL, value="no"),
+            ),
+        ),
+        Expression(
+            op=ExpressionOp.WHEN,
+            arguments=(
+                Expression(
+                    op=ExpressionOp.EQ,
+                    arguments=(
+                        Expression(op=ExpressionOp.COLUMN, column="p__player_id"),
+                        Expression(op=ExpressionOp.LITERAL, value="known"),
+                    ),
+                ),
+                Expression(op=ExpressionOp.LITERAL, value="yes"),
+                Expression(op=ExpressionOp.LITERAL, value=0),
+            ),
+        ),
+    ],
+)
+def test_validator_rejects_each_incompatible_expression_category(
+    expression: Expression,
+    catalog: LocalParquetCatalog,
+    sample_data_dir: Path,
+) -> None:
+    invalid = _path_ir().model_copy(
+        update={
+            "steps": (
+                ProjectStep(
+                    output="projected",
+                    input="p",
+                    columns=(NamedExpression(alias="invalid", expression=expression),),
+                ),
+                LimitStep(output="result", input="projected", count=1),
+            )
+        }
+    )
+
+    result = AnalysisValidator(catalog, approved_data_root=sample_data_dir).validate(invalid)
+
+    assert "invalid_expression_type" in {issue.code for issue in result.issues}
+
+
+def test_validator_rejects_incompatible_aggregate_types(
+    catalog: LocalParquetCatalog, sample_data_dir: Path
+) -> None:
+    invalid = _path_ir().model_copy(
+        update={
+            "steps": (
+                AggregateStep(
+                    output="aggregated",
+                    input="p",
+                    aggregations=(
+                        AggregateExpression(
+                            alias="invalid_total",
+                            function=AggregateFunction.SUM,
+                            expression=Expression(op=ExpressionOp.COLUMN, column="p__player_id"),
+                        ),
+                        AggregateExpression(
+                            alias="invalid_minimum",
+                            function=AggregateFunction.MIN,
+                            expression=Expression(
+                                op=ExpressionOp.EQ,
+                                arguments=(
+                                    Expression(op=ExpressionOp.COLUMN, column="p__player_id"),
+                                    Expression(op=ExpressionOp.LITERAL, value="known"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                LimitStep(output="result", input="aggregated", count=1),
+            )
+        }
+    )
+
+    result = AnalysisValidator(catalog, approved_data_root=sample_data_dir).validate(invalid)
+
+    assert "invalid_expression_type" in {issue.code for issue in result.issues}
+
+
+def test_validator_rejects_invalid_date_units(catalog: LocalParquetCatalog, sample_data_dir: Path) -> None:
+    invalid = _path_ir().model_copy(
+        update={
+            "steps": (
+                ProjectStep(
+                    output="projected",
+                    input="p",
+                    columns=(
+                        NamedExpression(
+                            alias="invalid_date",
+                            expression=Expression(
+                                op=ExpressionOp.DATE_TRUNC,
+                                value="century",
+                                arguments=(Expression(op=ExpressionOp.COLUMN, column="p__player_id"),),
+                            ),
+                        ),
+                    ),
+                ),
+                LimitStep(output="result", input="projected", count=1),
+            )
+        }
+    )
+
+    result = AnalysisValidator(catalog, approved_data_root=sample_data_dir).validate(invalid)
+
+    assert {"invalid_date_unit", "invalid_expression_type"} <= {issue.code for issue in result.issues}
 
 
 def test_join_condition_must_reference_both_relations(
@@ -267,6 +456,8 @@ def test_path_validation_uses_canonical_containment(tmp_path: Path) -> None:
     symlink = root / "linked.parquet"
     symlink.symlink_to(outside)
     traversal = nested / ".." / ".." / "outside.parquet"
+    special = root / "special.parquet"
+    os.mkfifo(special)
 
     valid = AnalysisValidator(StaticCatalog(_metadata(approved)), approved_data_root=root).validate(
         _path_ir()
@@ -278,9 +469,27 @@ def test_path_validation_uses_canonical_containment(tmp_path: Path) -> None:
         (_metadata(similar_prefix), "path_not_approved"),
         (_metadata(symlink), "path_not_approved"),
         (_metadata(traversal), "path_not_approved"),
+        (_metadata(special), "dataset_path_invalid"),
         (_metadata(root / "missing.parquet"), "dataset_path_missing"),
+        (_metadata("/\0invalid.parquet"), "dataset_path_missing"),
         (_metadata("relative.parquet"), "path_not_absolute"),
     )
     for metadata, expected_code in cases:
         result = AnalysisValidator(StaticCatalog(metadata), approved_data_root=root).validate(_path_ir())
         assert expected_code in {issue.code for issue in result.issues}
+
+
+def test_expression_limits_accept_the_exact_configured_boundary(
+    catalog: LocalParquetCatalog, sample_data_dir: Path, analysis_ir: AnalysisIR
+) -> None:
+    result = AnalysisValidator(
+        catalog,
+        approved_data_root=sample_data_dir,
+        policy=AnalysisPolicy(
+            max_expression_depth=2,
+            max_expression_nodes=3,
+            max_total_expression_nodes=7,
+        ),
+    ).validate(analysis_ir)
+
+    assert result.is_valid

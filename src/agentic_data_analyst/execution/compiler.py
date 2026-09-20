@@ -12,7 +12,6 @@ from agentic_data_analyst.models import (
     AggregateExpression,
     AggregateFunction,
     AggregateStep,
-    AnalysisIR,
     Expression,
     ExpressionOp,
     FilterStep,
@@ -73,8 +72,9 @@ class SparkCompiler:
                 raise ValueError(f"Unsupported analysis step: {type(step).__name__}")
         return frames[ir.output]
 
-    def render(self, ir: AnalysisIR) -> str:
+    def render(self, analysis: ValidatedAnalysis) -> str:
         """Render equivalent PySpark for review; execution still uses direct compilation."""
+        ir = analysis.ir
         lines = [
             "# Generated from validated spark_dataframe_ir/v1",
             "from pyspark.sql import functions as F",
@@ -118,6 +118,8 @@ class SparkCompiler:
                 lines.append(f"{step.output} = {step.input}.orderBy({ordering})")
             elif isinstance(step, LimitStep):
                 lines.append(f"{step.output} = {step.input}.limit({step.count})")
+            else:
+                raise ValueError(f"Unsupported analysis step: {type(step).__name__}")
         lines.append(f"result = {ir.output}")
         return "\n".join(lines)
 

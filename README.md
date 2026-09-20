@@ -111,11 +111,12 @@ Values depend on the generated snapshot and the analysis selected by the configu
 3. The planner sees only the selected annotated schemas and returns an `AnalysisPlan`.
 4. The generator converts the plan to `spark_dataframe_ir/v1`.
 5. Validation checks catalog authorization, canonical physical paths, selected columns,
-   relation lineage, centralized complexity limits, supported operations, and the final row
-   limit. A successful check creates an internal capability containing the authorized path
-   and output-lineage snapshot.
-6. The compiler accepts that capability and maps the IR to Spark DataFrame calls; it does
-   not look paths up again or evaluate source code supplied by the model.
+   relation lineage, expression type compatibility, centralized complexity limits,
+   supported operations, and the final row limit. A successful check creates an internal
+   capability containing the authorized path and output-lineage snapshot.
+6. The compiler and review-preview renderer accept that capability and map the IR to Spark
+   DataFrame calls; neither looks paths up again nor evaluates source code supplied by the
+   model.
 7. Immediately before execution, the runner repeats authorization, collects at most the
    requested maximum plus one truncation sentinel, and normalizes values for JSON.
 8. An optional structured model call explains the result rows.
@@ -130,9 +131,10 @@ filesystem APIs, environment access, networking, processes, dynamic evaluation, 
 or writes. Pydantic rejects unknown operations and fields before semantic validation. The
 validator then resolves every dataset and column against the catalog, canonicalizes each
 existing Parquet path and verifies containment with a path-aware check, validates
-intermediate relation lineage, enforces plan and expression complexity limits, and requires
-a bounded final output. The runner performs authorization immediately before execution and
-the compiler can read only the resulting path snapshot.
+intermediate relation lineage and compatible scalar expression types, enforces plan and
+expression complexity limits, and requires a bounded final output. Preview rendering occurs
+only after this authorization. The runner performs authorization immediately before
+execution and the compiler can read only the resulting path snapshot.
 
 Provider calls use strict JSON Schema, an explicit timeout, and a bounded response body.
 Questions and catalog text are marked as untrusted prompt data; prompt wording is not the

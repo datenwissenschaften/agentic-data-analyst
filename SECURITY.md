@@ -9,10 +9,11 @@ operations fail closed.
 
 Only a semantically valid `spark_dataframe_ir/v1` can reach the compiler. The validator
 authorizes catalog datasets, canonicalizes existing paths below the configured catalog root,
-checks selected columns and relation lineage, rejects unsupported nodes, bounds expression
-and plan complexity, and requires a final result limit. It returns an internal capability
-with a snapshot of the approved paths and columns. The compiler accepts that capability and
-uses an exhaustive mapping to PySpark DataFrame operations.
+checks selected columns, relation lineage, and compatible expression operand types, rejects
+unsupported nodes, bounds expression and plan complexity, and requires a final result limit.
+It returns an internal capability with a snapshot of the approved paths and columns. Both
+preview rendering and execution compilation accept that capability and use an exhaustive
+mapping to PySpark DataFrame operations.
 
 The IR has no operations for Python imports or evaluation, environment variables, networks,
 processes, shell commands, arbitrary URLs or paths, Spark SQL strings, JVM access, UDFs,

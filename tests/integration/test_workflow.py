@@ -12,11 +12,23 @@ from agentic_data_analyst.agents import (
 )
 from agentic_data_analyst.api.app import create_app
 from agentic_data_analyst.catalog.local import LocalParquetCatalog
+from agentic_data_analyst.errors import UnsafeAnalysisError
 from agentic_data_analyst.execution import SparkAnalysisRunner, SparkCompiler, SparkSessionFactory
 from agentic_data_analyst.guardrails import AnalysisValidator
+from agentic_data_analyst.guardrails.validated import ValidatedAnalysis
 from agentic_data_analyst.llm import FakeLLMClient
+from agentic_data_analyst.models import AnalysisIR, AnalysisPlan, AnalyticsQuestion
 from agentic_data_analyst.policy import AnalysisPolicy
 from agentic_data_analyst.workflow import AnalysisWorkflow
+
+
+class RecordingCompiler(SparkCompiler):
+    def __init__(self) -> None:
+        self.rendered = False
+
+    def render(self, analysis: ValidatedAnalysis) -> str:
+        self.rendered = True
+        return super().render(analysis)
 
 
 @pytest.mark.integration
@@ -71,3 +83,45 @@ def test_natural_language_to_executed_spark_result(
         "execution",
         "interpretation",
     }
+
+
+@pytest.mark.integration
+def test_workflow_rejects_ir_before_compiler_preview(
+    catalog: LocalParquetCatalog,
+    sample_data_dir: Path,
+    spark_sessions: SparkSessionFactory,
+    analysis_plan: AnalysisPlan,
+    analysis_ir: AnalysisIR,
+) -> None:
+    invalid_ir = analysis_ir.model_copy(
+        update={"steps": (*analysis_ir.steps[:-1], analysis_ir.steps[-1].model_copy(update={"count": 101}))}
+    )
+    llm = FakeLLMClient(
+        [
+            {"datasets": ["players", "sessions"], "rationale": "required"},
+            analysis_plan,
+            invalid_ir,
+        ]
+    )
+    validator = AnalysisValidator(catalog, approved_data_root=sample_data_dir)
+    compiler = RecordingCompiler()
+    workflow = AnalysisWorkflow(
+        catalog=catalog,
+        discovery=MetadataDiscoveryAgent(llm),
+        planner=PlanningAgent(llm),
+        generator=GenerationAgent(llm),
+        validator=validator,
+        compiler=compiler,
+        runner=SparkAnalysisRunner(
+            validator=validator,
+            compiler=compiler,
+            session_factory=spark_sessions,
+        ),
+        interpreter=None,
+        policy=AnalysisPolicy(max_result_rows=100),
+    )
+
+    with pytest.raises(UnsafeAnalysisError, match="result_limit_exceeded"):
+        asyncio.run(workflow.analyze(AnalyticsQuestion(question="Average duration by segment")))
+
+    assert not compiler.rendered

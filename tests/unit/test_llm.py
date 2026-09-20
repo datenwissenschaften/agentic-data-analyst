@@ -87,7 +87,11 @@ def _complete_with_handler(
     "response",
     [
         httpx.Response(200, content=b"not-json"),
+        httpx.Response(200, content=b"[" * 2_000 + b"]" * 2_000),
+        httpx.Response(200, json=[]),
         httpx.Response(200, json={"choices": []}),
+        httpx.Response(200, json={"choices": [{"message": "invalid"}]}),
+        httpx.Response(200, json={"choices": [{"message": {"content": 123}}]}),
         httpx.Response(
             200,
             json={"choices": [{"message": {"content": json.dumps({"datasets": [], "rationale": "none"})}}]},
@@ -110,7 +114,14 @@ def _complete_with_handler(
                 ]
             },
         ),
+        httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": json.dumps({"datasets": [1], "rationale": "bad type"})}}]
+            },
+        ),
         httpx.Response(200, content=b""),
+        httpx.Response(200, content=b"\xff"),
         httpx.Response(500, json={"error": {"message": "upstream included secret"}}),
     ],
 )
@@ -139,6 +150,33 @@ def test_openrouter_rejects_response_over_size_limit() -> None:
 
     with pytest.raises(LLMError, match="size limit"):
         _complete_with_handler(transport, max_response_bytes=100)
+
+
+@pytest.mark.parametrize("content_length", ["invalid", "101"])
+def test_openrouter_rejects_invalid_or_oversized_content_length(content_length: str) -> None:
+    response = httpx.Response(
+        200,
+        headers={"content-length": content_length},
+        json={
+            "choices": [
+                {"message": {"content": json.dumps({"datasets": ["sessions"], "rationale": "activity"})}}
+            ]
+        },
+    )
+
+    with pytest.raises(LLMError):
+        _complete_with_handler(httpx.MockTransport(lambda request: response), max_response_bytes=100)
+
+
+def test_openrouter_rejects_invalid_client_limits() -> None:
+    with pytest.raises(ValueError, match="API key"):
+        OpenRouterClient(api_key="", model="test/model")
+    with pytest.raises(ValueError, match="model"):
+        OpenRouterClient(api_key="test", model="")
+    with pytest.raises(ValueError, match="timeout"):
+        OpenRouterClient(api_key="test", model="test/model", timeout_seconds=0)
+    with pytest.raises(ValueError, match="response size"):
+        OpenRouterClient(api_key="test", model="test/model", max_response_bytes=0)
 
 
 def test_fake_llm_rejects_unknown_fields_as_provider_error() -> None:

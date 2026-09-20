@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import deque
 from collections.abc import Iterable, Sequence
 from typing import Any
@@ -24,8 +25,8 @@ class FakeLLMClient:
         if not self._responses:
             raise LLMError("Fake LLM has no queued response")
         response = self._responses.popleft()
-        payload = response.model_dump(mode="json") if isinstance(response, BaseModel) else response
         try:
-            return response_model.model_validate(payload)
+            payload = response.model_dump_json() if isinstance(response, BaseModel) else json.dumps(response)
+            return response_model.model_validate_json(payload)
         except (TypeError, ValidationError) as exc:
             raise LLMError("Fake LLM structured completion failed validation") from exc

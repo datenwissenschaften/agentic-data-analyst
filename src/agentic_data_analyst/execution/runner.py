@@ -8,6 +8,8 @@ import uuid
 from contextlib import suppress
 from datetime import date, datetime
 from decimal import Decimal
+from math import isfinite
+
 from pyspark.sql import SparkSession
 
 from agentic_data_analyst.errors import ExecutionError, ExecutionTimeoutError, UnsafeAnalysisError
@@ -141,10 +143,13 @@ class SparkAnalysisRunner:
 
     @staticmethod
     def _normalize(value: object) -> ResultValue:
+        if isinstance(value, float) and not isfinite(value):
+            return str(value)
         if value is None or isinstance(value, (str, int, float, bool)):
             return value
         if isinstance(value, (date, datetime)):
             return value.isoformat()
         if isinstance(value, Decimal):
-            return float(value)
+            converted = float(value)
+            return converted if isfinite(converted) else str(value)
         return str(value)

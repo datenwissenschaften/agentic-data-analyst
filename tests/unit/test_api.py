@@ -58,7 +58,12 @@ def test_health_response() -> None:
     [
         (LLMError("provider secret"), 502, "llm_error", "Model completion failed"),
         (CatalogError("internal path"), 503, "catalog_error", "Catalog operation failed"),
-        (UnsafeAnalysisError("rejected"), 422, "unsafe_analysis", "rejected"),
+        (
+            UnsafeAnalysisError("rejected secret"),
+            422,
+            "unsafe_analysis",
+            "Generated analysis was rejected",
+        ),
         (ExecutionError("internal Spark path"), 500, "execution_error", "Analysis execution failed"),
         (
             ExecutionTimeoutError("internal timeout"),
@@ -82,6 +87,7 @@ def test_analysis_returns_stable_sanitized_errors(
     assert "unexpected secret" not in response.text
     assert "provider secret" not in response.text
     assert "internal path" not in response.text
+    assert "rejected secret" not in response.text
 
 
 def test_request_validation_is_bounded_and_does_not_echo_input() -> None:

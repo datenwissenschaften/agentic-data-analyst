@@ -7,8 +7,9 @@ ENV PIP_NO_CACHE_DIR=1 \
 WORKDIR /app
 RUN python -m pip install "poetry==2.3.1"
 COPY pyproject.toml poetry.lock README.md LICENSE ./
+RUN poetry install --only main --no-root --no-ansi
 COPY src ./src
-RUN poetry install --only main --no-ansi
+RUN poetry install --only-root --no-ansi
 
 FROM python:3.12-slim@sha256:7a8b475003c4fe15a2cd4e55e5cfc2f3560bdc9333d624f24cdd6d4340fd7a17 AS runtime
 

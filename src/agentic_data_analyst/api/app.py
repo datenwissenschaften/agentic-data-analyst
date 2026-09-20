@@ -76,8 +76,12 @@ def create_app(workflow: AnalysisWorkflow | None = None) -> FastAPI:
 
     @application.exception_handler(UnsafeAnalysisError)
     async def unsafe_analysis(request: Request, exc: UnsafeAnalysisError) -> JSONResponse:
-        del request
-        return _error_response(status.HTTP_422_UNPROCESSABLE_CONTENT, "unsafe_analysis", str(exc))
+        del request, exc
+        return _error_response(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "unsafe_analysis",
+            "Generated analysis was rejected",
+        )
 
     @application.exception_handler(LLMError)
     async def llm_error(request: Request, exc: LLMError) -> JSONResponse:

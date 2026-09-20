@@ -6,6 +6,7 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
+from dotenv import dotenv_values
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from agentic_data_analyst.policy import MAX_RESULT_ROWS_HARD, AnalysisPolicy
@@ -36,8 +37,25 @@ class Settings(BaseModel):
         return AnalysisPolicy(max_result_rows=self.max_result_rows)
 
     @classmethod
-    def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
-        source = os.environ if environ is None else environ
+    def from_env(
+        cls,
+        environ: Mapping[str, str] | None = None,
+        *,
+        env_file: Path | None = Path(".env"),
+    ) -> Settings:
+        if environ is None:
+            file_values = (
+                {
+                    key: value
+                    for key, value in dotenv_values(env_file, encoding="utf-8").items()
+                    if value is not None
+                }
+                if env_file is not None
+                else {}
+            )
+            source: Mapping[str, str] = {**file_values, **os.environ}
+        else:
+            source = environ
         key = source.get("OPENROUTER_API_KEY")
         return cls.model_validate(
             {

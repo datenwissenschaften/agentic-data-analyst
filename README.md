@@ -61,14 +61,18 @@ poetry install --extras dev
 poetry run agentic-data-generate --output data/sample
 ```
 
-Set `OPENROUTER_API_KEY` in your environment and choose a model that supports strict
-structured output:
+Copy the example configuration, set `OPENROUTER_API_KEY`, and choose a model that
+supports strict structured output:
 
 ```bash
-export OPENROUTER_API_KEY="..."
-export OPENROUTER_MODEL="openai/gpt-4.1-mini"
+cp .env.example .env
+# Edit .env and replace OPENROUTER_API_KEY with your key.
 poetry run uvicorn agentic_data_analyst.api.app:app --reload
 ```
+
+The application reads `.env` from its working directory. Process environment variables
+override matching `.env` values, so production deployments can inject configuration
+without changing the file.
 
 The service is available at `http://localhost:8000`; its OpenAPI UI is at `/docs`.
 

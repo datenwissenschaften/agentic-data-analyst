@@ -1,0 +1,17 @@
+name: gaming_analytics
+version: "1.0.0"
+config-version: 2
+
+# Synthetic example project. It documents the same gaming/product analytics
+# domain as data/sample and is never executed by agentic-data-analyst or by
+# CI; see target/README.md for what is actually consumed.
+profile: gaming_analytics
+model-paths: ["models"]
+target-path: "target"
+
+models:
+  gaming_analytics:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

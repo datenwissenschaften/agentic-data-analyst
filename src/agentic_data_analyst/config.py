@@ -18,10 +18,11 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     catalog_path: Path = Path("data/sample")
+    dbt_project_path: Path | None = None
     spark_master: str = Field(default="local[2]", min_length=1, max_length=200)
     max_result_rows: int = Field(default=100, gt=0, le=MAX_RESULT_ROWS_HARD)
     openrouter_api_key: SecretStr | None = None
-    openrouter_model: str = Field(default="openai/gpt-4.1-mini", min_length=1, max_length=200)
+    openrouter_model: str = Field(default="openai/gpt-4.1", min_length=1, max_length=200)
     openrouter_base_url: AnyHttpUrl = AnyHttpUrl("https://openrouter.ai/api/v1")
     llm_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
     llm_max_attempts: int = Field(default=2, ge=1, le=5)
@@ -32,6 +33,11 @@ class Settings(BaseModel):
     @classmethod
     def expand_catalog_path(cls, value: Path) -> Path:
         return value.expanduser()
+
+    @field_validator("dbt_project_path")
+    @classmethod
+    def expand_dbt_project_path(cls, value: Path | None) -> Path | None:
+        return value if value is None else value.expanduser()
 
     @property
     def analysis_policy(self) -> AnalysisPolicy:
@@ -57,10 +63,11 @@ class Settings(BaseModel):
         return cls.model_validate(
             {
                 "catalog_path": source.get("DATA_CATALOG_PATH", "data/sample"),
+                "dbt_project_path": source.get("DBT_PROJECT_PATH") or None,
                 "spark_master": source.get("SPARK_MASTER", "local[2]"),
                 "max_result_rows": source.get("MAX_RESULT_ROWS", "100"),
                 "openrouter_api_key": key if key else None,
-                "openrouter_model": source.get("OPENROUTER_MODEL", "openai/gpt-4.1-mini"),
+                "openrouter_model": source.get("OPENROUTER_MODEL", "openai/gpt-4.1"),
                 "openrouter_base_url": source.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
                 "llm_timeout_seconds": source.get("LLM_TIMEOUT_SECONDS", "60"),
                 "llm_max_attempts": source.get("LLM_MAX_ATTEMPTS", "2"),

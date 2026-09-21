@@ -9,6 +9,10 @@ class CatalogError(AnalystError):
     """Catalog data is missing or malformed."""
 
 
+class DbtArtifactError(AnalystError):
+    """A dbt artifact is missing, malformed, oversized, or an unsupported schema version."""
+
+
 class LLMError(AnalystError):
     """The model provider failed or returned an invalid response."""
 

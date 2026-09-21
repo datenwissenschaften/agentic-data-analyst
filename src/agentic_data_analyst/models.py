@@ -48,6 +48,36 @@ class ColumnMetadata(StrictModel):
     data_type: Annotated[str, StringConstraints(min_length=1, max_length=500)]
     description: Annotated[str, StringConstraints(max_length=2_000)] = ""
     nullable: bool = True
+    declared_data_type: Annotated[str, StringConstraints(min_length=1, max_length=500)] | None = None
+
+
+class RelationMetadata(StrictModel):
+    """Logical relation identity supplied by a metadata provider."""
+
+    database: Annotated[str, StringConstraints(max_length=500)] | None = None
+    schema_name: Annotated[str, StringConstraints(max_length=500)] | None = None
+    identifier: Annotated[str, StringConstraints(min_length=1, max_length=500)]
+
+
+class LineageMetadata(StrictModel):
+    """Direct declared/derived graph relationships; never an execution authorization."""
+
+    upstream: tuple[Annotated[str, StringConstraints(min_length=1, max_length=500)], ...] = Field(
+        default=(), max_length=100
+    )
+    downstream: tuple[Annotated[str, StringConstraints(min_length=1, max_length=500)], ...] = Field(
+        default=(), max_length=100
+    )
+
+
+class QualityExpectationMetadata(StrictModel):
+    """A declared data-quality expectation, not evidence that data currently passes it."""
+
+    unique_id: Annotated[str, StringConstraints(min_length=1, max_length=500)]
+    test_type: Literal["not_null", "unique", "relationships", "accepted_values"]
+    columns: tuple[Identifier, ...] = Field(default=(), max_length=8)
+    target: Annotated[str, StringConstraints(min_length=1, max_length=500)] | None = None
+    accepted_values: tuple[Scalar, ...] = Field(default=(), max_length=100)
 
 
 class RelationshipMetadata(StrictModel):
@@ -64,6 +94,11 @@ class DatasetMetadata(StrictModel):
     columns: tuple[ColumnMetadata, ...] = Field(min_length=1, max_length=MAX_SELECTED_COLUMNS_PER_INPUT)
     relationships: tuple[RelationshipMetadata, ...] = ()
     tags: tuple[Annotated[str, StringConstraints(min_length=1, max_length=100)], ...] = Field(default=(), max_length=32)
+    external_id: Annotated[str, StringConstraints(min_length=1, max_length=500)] | None = None
+    metadata_source: Literal["dbt"] | None = None
+    relation: RelationMetadata | None = None
+    lineage: LineageMetadata = LineageMetadata()
+    quality_expectations: tuple[QualityExpectationMetadata, ...] = Field(default=(), max_length=100)
 
     @model_validator(mode="after")
     def unique_columns(self) -> DatasetMetadata:
@@ -80,6 +115,7 @@ class CatalogCandidate(StrictModel):
     description: Annotated[str, StringConstraints(min_length=1, max_length=4_000)]
     tags: tuple[Annotated[str, StringConstraints(min_length=1, max_length=100)], ...] = Field(default=(), max_length=32)
     score: float = 0.0
+    lineage: LineageMetadata = LineageMetadata()
 
 
 class AnalyticsQuestion(StrictModel):

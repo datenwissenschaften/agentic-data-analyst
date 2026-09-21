@@ -1,0 +1,317 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/catalog/v1.json",
+    "dbt_version": "1.8.5",
+    "generated_at": "2025-06-01T00:00:00.000000Z"
+  },
+  "nodes": {
+    "model.gaming_analytics.fct_player_sessions": {
+      "columns": {
+        "event_count": {
+          "comment": null,
+          "index": 8,
+          "name": "event_count",
+          "type": "BIGINT"
+        },
+        "player_id": {
+          "comment": null,
+          "index": 2,
+          "name": "player_id",
+          "type": "VARCHAR"
+        },
+        "region": {
+          "comment": null,
+          "index": 4,
+          "name": "region",
+          "type": "VARCHAR"
+        },
+        "retained_7d": {
+          "comment": null,
+          "index": 7,
+          "name": "retained_7d",
+          "type": "BOOLEAN"
+        },
+        "segment": {
+          "comment": null,
+          "index": 3,
+          "name": "segment",
+          "type": "VARCHAR"
+        },
+        "session_id": {
+          "comment": null,
+          "index": 1,
+          "name": "session_id",
+          "type": "VARCHAR"
+        },
+        "session_start": {
+          "comment": null,
+          "index": 5,
+          "name": "session_start",
+          "type": "TIMESTAMP_NTZ"
+        },
+        "signup_at": {
+          "comment": null,
+          "index": 6,
+          "name": "signup_at",
+          "type": "TIMESTAMP_NTZ"
+        }
+      },
+      "metadata": {
+        "comment": null,
+        "database": "analytics",
+        "name": "fct_player_sessions",
+        "schema": "analytics",
+        "type": "table"
+      },
+      "stats": {}
+    },
+    "model.gaming_analytics.mart_player_retention": {
+      "columns": {
+        "cohort_week": {
+          "comment": null,
+          "index": 3,
+          "name": "cohort_week",
+          "type": "DATE"
+        },
+        "player_count": {
+          "comment": null,
+          "index": 5,
+          "name": "player_count",
+          "type": "BIGINT"
+        },
+        "region": {
+          "comment": null,
+          "index": 2,
+          "name": "region",
+          "type": "VARCHAR"
+        },
+        "retention_7d": {
+          "comment": null,
+          "index": 4,
+          "name": "retention_7d",
+          "type": "DOUBLE"
+        },
+        "segment": {
+          "comment": null,
+          "index": 1,
+          "name": "segment",
+          "type": "VARCHAR"
+        }
+      },
+      "metadata": {
+        "comment": null,
+        "database": "analytics",
+        "name": "mart_player_retention",
+        "schema": "analytics",
+        "type": "table"
+      },
+      "stats": {}
+    },
+    "model.gaming_analytics.stg_players": {
+      "columns": {
+        "acquisition_channel": {
+          "comment": null,
+          "index": 5,
+          "name": "acquisition_channel",
+          "type": "VARCHAR"
+        },
+        "player_id": {
+          "comment": null,
+          "index": 1,
+          "name": "player_id",
+          "type": "VARCHAR"
+        },
+        "region": {
+          "comment": null,
+          "index": 4,
+          "name": "region",
+          "type": "VARCHAR"
+        },
+        "segment": {
+          "comment": null,
+          "index": 3,
+          "name": "segment",
+          "type": "VARCHAR"
+        },
+        "signup_at": {
+          "comment": null,
+          "index": 2,
+          "name": "signup_at",
+          "type": "TIMESTAMP_NTZ"
+        }
+      },
+      "metadata": {
+        "comment": null,
+        "database": "analytics",
+        "name": "players",
+        "schema": "analytics",
+        "type": "table"
+      },
+      "stats": {}
+    },
+    "model.gaming_analytics.stg_sessions": {
+      "columns": {
+        "device": {
+          "comment": null,
+          "index": 6,
+          "name": "device",
+          "type": "VARCHAR"
+        },
+        "duration_minutes": {
+          "comment": null,
+          "index": 5,
+          "name": "duration_minutes",
+          "type": "DOUBLE"
+        },
+        "player_id": {
+          "comment": null,
+          "index": 2,
+          "name": "player_id",
+          "type": "VARCHAR"
+        },
+        "session_end": {
+          "comment": null,
+          "index": 4,
+          "name": "session_end",
+          "type": "TIMESTAMP_NTZ"
+        },
+        "session_id": {
+          "comment": null,
+          "index": 1,
+          "name": "session_id",
+          "type": "VARCHAR"
+        },
+        "session_start": {
+          "comment": null,
+          "index": 3,
+          "name": "session_start",
+          "type": "TIMESTAMP_NTZ"
+        }
+      },
+      "metadata": {
+        "comment": null,
+        "database": "analytics",
+        "name": "sessions",
+        "schema": "analytics",
+        "type": "table"
+      },
+      "stats": {}
+    }
+  },
+  "sources": {
+    "source.gaming_analytics.raw.raw_events": {
+      "columns": {
+        "event_id": {
+          "comment": null,
+          "index": 1,
+          "name": "event_id",
+          "type": "VARCHAR"
+        },
+        "session_id": {
+          "comment": null,
+          "index": 2,
+          "name": "session_id",
+          "type": "VARCHAR"
+        }
+      },
+      "metadata": {
+        "comment": null,
+        "database": "analytics",
+        "name": "events",
+        "schema": "analytics",
+        "type": "table"
+      },
+      "stats": {}
+    },
+    "source.gaming_analytics.raw.raw_players": {
+      "columns": {
+        "acquisition_channel": {
+          "comment": null,
+          "index": 5,
+          "name": "acquisition_channel",
+          "type": "VARCHAR"
+        },
+        "player_id": {
+          "comment": null,
+          "index": 1,
+          "name": "player_id",
+          "type": "VARCHAR"
+        },
+        "region": {
+          "comment": null,
+          "index": 4,
+          "name": "region",
+          "type": "VARCHAR"
+        },
+        "segment": {
+          "comment": null,
+          "index": 3,
+          "name": "segment",
+          "type": "VARCHAR"
+        },
+        "signup_at": {
+          "comment": null,
+          "index": 2,
+          "name": "signup_at",
+          "type": "TIMESTAMP_NTZ"
+        }
+      },
+      "metadata": {
+        "comment": null,
+        "database": "analytics",
+        "name": "players",
+        "schema": "analytics",
+        "type": "table"
+      },
+      "stats": {}
+    },
+    "source.gaming_analytics.raw.raw_sessions": {
+      "columns": {
+        "device": {
+          "comment": null,
+          "index": 6,
+          "name": "device",
+          "type": "VARCHAR"
+        },
+        "duration_minutes": {
+          "comment": null,
+          "index": 5,
+          "name": "duration_minutes",
+          "type": "DOUBLE"
+        },
+        "player_id": {
+          "comment": null,
+          "index": 2,
+          "name": "player_id",
+          "type": "VARCHAR"
+        },
+        "session_end": {
+          "comment": null,
+          "index": 4,
+          "name": "session_end",
+          "type": "TIMESTAMP_NTZ"
+        },
+        "session_id": {
+          "comment": null,
+          "index": 1,
+          "name": "session_id",
+          "type": "VARCHAR"
+        },
+        "session_start": {
+          "comment": null,
+          "index": 3,
+          "name": "session_start",
+          "type": "TIMESTAMP_NTZ"
+        }
+      },
+      "metadata": {
+        "comment": null,
+        "database": "analytics",
+        "name": "sessions",
+        "schema": "analytics",
+        "type": "table"
+      },
+      "stats": {}
+    }
+  }
+}

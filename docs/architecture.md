@@ -19,6 +19,7 @@ business schema.
 | `policy.py` | Central structural and operational analysis limits | Standard library |
 | `llm/` | Structured completion protocol, OpenRouter adapter, deterministic fake | Models, HTTPX |
 | `catalog/` | Dataset discovery, metadata search, schema lookup | Models, PyArrow |
+| `dbt/` | Parse dbt artifacts; enrich a `Catalog` with descriptions, lineage, tests | Models, `catalog/` |
 | `agents/` | Discovery, planning, IR generation, interpretation | LLM and model contracts |
 | `guardrails/` | Catalog authorization, path checks, expression and lineage validation | Catalog and models |
 | `execution/` | Deterministic IR compiler, Spark lifecycle, bounded collection | Guardrails, PySpark |
@@ -81,6 +82,42 @@ workflow calls the catalog interface directly because an in-process protocol hop
 useful isolation. MCP is retained at the external boundary where another agent or process can
 discover metadata without filesystem access.
 
+## dbt metadata integration
+
+`agentic_data_analyst.dbt` is an optional enrichment layer over `Catalog`, activated by
+`bootstrap.build_catalog` when `Settings.dbt_project_path` is set. It is deliberately split
+into three narrow pieces so dbt-specific parsing never leaks into the generic metadata model:
+
+- `schema.py` — lenient (`extra="ignore"`) Pydantic models mirroring the documented subset of
+  dbt's `manifest.json`/`catalog.json` structure. Lenient here means *unused* raw fields are
+  dropped; every field the loader depends on is declared, so an incompatible shape for a used
+  field still fails to parse.
+- `loader.py` — `DbtArtifactLoader` resolves and reads `manifest.json` (required, path- and
+  size-bounded like `LocalParquetCatalog`'s sidecar reads) and `catalog.json` (optional),
+  checks `metadata.dbt_schema_version` against the explicitly supported versions (manifest
+  v11/v12, catalog v1), and normalizes nodes/sources/tests into frozen internal dataclasses
+  (`DbtRelation`, `DbtTest`) — never into the agent-facing `DatasetMetadata` directly.
+- `lineage.py` — computes only *direct* upstream/downstream edges from the declared
+  `depends_on` graph, reversing it deterministically for downstream. A reference to a missing
+  unique_id (a pruned or disabled node) is dropped rather than raised; because there is no
+  transitive closure, a declared cycle cannot cause unbounded traversal.
+- `catalog.py` — `DbtEnrichedCatalog` wraps a physical `Catalog`. It matches each dbt
+  model/source to a physical dataset by relation identifier (a model wins over a source on a
+  tie, being the more curated layer) and enriches that dataset's `DatasetMetadata` with
+  `relation`, `lineage`, `quality_expectations`, `metadata_source`, `external_id`, and
+  per-column `declared_data_type`. `search()` reimplements the same lexical token-overlap
+  ranking `LocalParquetCatalog` uses, widened to also match the description/tag/column text of
+  each dataset's directly connected dbt nodes — this is what lets a mart's retention-flavored
+  description raise the ranking of the physical dataset upstream of it, without a vector index.
+
+The security-relevant invariant: a dbt node with no matching physical dataset is never
+returned by `list_datasets()`/`search()`/`get_dataset()`. `AnalysisValidator` only ever
+authorizes datasets it can resolve through the physical catalog and canonicalize under the
+approved root, so nothing `DbtEnrichedCatalog` attaches can grant a dataset a path it would
+not otherwise have. See `agentic_data_analyst/dbt/catalog.py`'s module docstring and
+`tests/unit/test_dbt_catalog.py` for the enforced boundary, and
+`examples/dbt/gaming_analytics/README.md` for the synthetic example project.
+
 ## Analysis representation
 
 `spark_dataframe_ir/v1` is an ordered relational graph. Inputs identify catalog datasets,
@@ -132,6 +169,8 @@ from the validated capability by the deterministic compiler and is never evaluat
 Expected failures use application exceptions:
 
 - `CatalogError`: missing or malformed local metadata;
+- `DbtArtifactError`: a configured dbt artifact is missing, malformed, oversized, or an
+  unsupported schema version;
 - `LLMError`: provider transport failure, invalid structured response, or invented schema;
 - `UnsafeAnalysisError`: semantic validation rejected the IR;
 - `ExecutionError`: Spark failed after validation;
@@ -163,12 +202,24 @@ The OpenRouter provider sees the question and selected schema metadata.
 ## Testing strategy
 
 Unit tests isolate catalog discovery, metadata search, provider response validation, planning
-constraints, guardrails, compiler semantics, Spark execution, and HTTP error mapping. They
-include traversal and symlink cases, complexity limits, malformed provider responses, and
-prompt-injection proposals for filesystem, environment, network, process, SQL, Python, write,
-and Spark-configuration operations. A single integration test assembles real local Parquet
-and Spark adapters with a queued fake LLM, then drives the complete workflow through FastAPI.
-No test makes a network request or requires a credential.
+constraints, guardrails, compiler semantics, Spark execution, dbt artifact parsing/lineage,
+dbt catalog enrichment, and HTTP error mapping. They include traversal and symlink cases
+(both for the physical catalog and for dbt artifact loading), complexity limits, malformed
+provider responses, malformed/unsupported dbt artifacts, and prompt-injection proposals for
+filesystem, environment, network, process, SQL, Python, write, and Spark-configuration
+operations — including injection-style text arriving as dbt-sourced dataset metadata. A
+single integration test assembles real local Parquet and Spark adapters with a queued fake
+LLM, then drives the complete workflow through FastAPI. No test in the `pytest` suite makes a
+network request or requires a credential — `FakeLLMClient` stands in for the provider
+everywhere under `tests/`.
+
+`examples/agentic_analytics_workflow.ipynb` is the one exception: it deliberately calls a real
+`OpenRouterClient` (see the notebook's own introduction) so the four agent stages run against
+an actual model instead of a fixture, including a live demonstration of `AnalysisValidator`
+rejecting an invalid model-produced IR. A separate, non-blocking CI job executes it end to end
+whenever an `OPENROUTER_API_KEY` repository secret is configured, and is skipped otherwise; its
+output can legitimately differ between runs, so it is a smoke test, not a reproducibility
+check.
 
 ## Extension points
 

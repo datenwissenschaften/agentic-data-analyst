@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: fct_player_sessions
+    description: >
+      Session-level fact table joining player attributes with session
+      engagement metrics, including a derived retained_7d flag (whether the
+      session occurred at least 7 days after the player's signup) used to
+      compute mart_player_retention.
+    columns:
+      - name: session_id
+        description: Stable synthetic session identifier.
+      - name: player_id
+        description: Player represented by this session row.
+      - name: retained_7d
+        description: True when this session occurred 7 or more days after the player's signup.
+
+  - name: mart_player_retention
+    description: >
+      Weekly 7-day player retention rate by segment and region, aggregated
+      from fct_player_sessions. retention_7d is the share of a cohort's
+      sessions that occurred 7 or more days after signup; player_count is
+      the distinct player count backing that rate. A declining retention_7d
+      for a segment/region/cohort combination is the primary signal
+      analysts use this mart to investigate.
+    columns:
+      - name: segment
+        description: Behavioral segment (casual, core, or competitive).
+      - name: region
+        description: Synthetic player region.
+      - name: cohort_week
+        description: Week-truncated signup date defining the cohort.
+      - name: retention_7d
+        description: Share of the cohort's sessions retained at 7 or more days.
+      - name: player_count
+        description: Distinct players backing the retention_7d estimate.

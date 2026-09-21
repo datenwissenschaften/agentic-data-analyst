@@ -27,21 +27,35 @@ flowchart LR
     R --> I[Result interpreter]
     I --> A[API response]
     C -. read-only tools .-> M[MCP catalog server]
+    T[dbt manifest.json / catalog.json] -. descriptions, lineage, tests .-> C
 ```
 
 The first model call selects datasets from lightweight catalog search results. Only those
 schemas are sent into planning and generation. The LLM produces strict Pydantic objects at
 each stage. The final analysis is a closed, versioned IR supporting dataset reads, joins,
 filters, projections, aggregations, sorting, and limits. A deterministic compiler maps that
-IR to Spark's DataFrame API.
+IR to Spark's DataFrame API. An optional dbt artifact reader enriches the catalog with
+descriptions, lineage, and declared data-quality tests without ever granting a dbt-only
+model execution access — see [dbt metadata integration](#dbt-metadata-integration).
 
 See [docs/architecture.md](docs/architecture.md) for the dependency rules, execution model,
 security boundary, and extension points.
+
+<p align="center">
+  <img src="docs/assets/agentic-workflow/session-duration-by-segment.png" width="640"
+       alt="Average session duration by player segment, computed by the example workflow">
+</p>
+
+See the end-to-end Jupyter example:
+[`examples/agentic_analytics_workflow.ipynb`](examples/agentic_analytics_workflow.ipynb).
 
 ## Capabilities
 
 - Local discovery of Parquet datasets, Arrow data types, descriptions, tags, and declared
   relationships
+- Optional dbt metadata integration: descriptions, declared column types, direct lineage,
+  and declared data-quality tests read from a dbt project's `manifest.json`/`catalog.json`
+  enrich discovery without dbt-core at runtime or any change to what can be executed
 - Focused metadata retrieval instead of placing the entire catalog in each prompt
 - OpenRouter-compatible strict JSON Schema responses through a small provider interface
 - Deterministic fake LLM responses for tests
@@ -128,6 +142,46 @@ Values depend on the generated snapshot and the analysis selected by the configu
 Each stage is directly testable and reports elapsed time. Provider prompts remain internal
 and are not returned by the API.
 
+## dbt metadata integration
+
+Setting `DBT_PROJECT_PATH` to a dbt project's compiled `target/` directory wraps the local
+catalog with `DbtEnrichedCatalog`, which enriches — never replaces — catalog discovery:
+
+- **Consumes** `manifest.json` (required) and `catalog.json` (optional) — the artifacts dbt
+  itself writes after `dbt parse` / `dbt docs generate`. dbt-core is never imported or
+  invoked; artifacts are parsed with typed internal Pydantic models. Tested against dbt
+  manifest schema versions v11 and v12 and catalog schema version v1; anything else raises
+  `DbtArtifactError` rather than being reinterpreted.
+- **Extracts** model/source names, relation identity (database/schema/identifier),
+  descriptions, column descriptions and declared types, tags, and selected generic tests
+  (`not_null`, `unique`, `relationships`, `accepted_values`).
+- **Matches** each dbt model/source to a physical catalog dataset by relation identifier
+  (preferring a model over a source when both resolve to the same physical name, since it is
+  the more curated layer). A dbt node with no matching physical dataset — a downstream mart
+  that was never materialized as Parquet, for example — is never selectable or executable:
+  only its *text* can raise the search ranking of the physical datasets it depends on.
+- **Derives lineage deterministically**: only direct upstream/downstream edges from the
+  manifest's declared dependency graph are represented; a reference to a missing or pruned
+  node is skipped, and cycles cannot cause unbounded traversal because no transitive closure
+  is computed.
+- **Surfaces dbt tests as declared quality expectations, not runtime guarantees.** A
+  `not_null`/`unique`/`relationships`/`accepted_values` test appearing in
+  `quality_expectations` means dbt declares that expectation; this project never runs dbt
+  tests and treats their presence as metadata, not proof the current Parquet snapshot passes
+  them.
+- **Never weakens the execution boundary.** dbt-sourced text flows through the same
+  `StrictModel` contracts, size limits, and "untrusted data" prompt framing as all other
+  catalog metadata (see [Guardrails and security model](#guardrails-and-security-model)); it
+  cannot become an instruction, a path, or an expression, and `AnalysisValidator`
+  re-authorizes every dataset from the physical catalog independently of anything dbt
+  attaches.
+
+See [`examples/dbt/gaming_analytics/`](examples/dbt/gaming_analytics/) for a synthetic
+example project (with committed, hand-authored `manifest.json`/`catalog.json` so the example
+runs without installing dbt) and
+[`examples/agentic_analytics_workflow.ipynb`](examples/agentic_analytics_workflow.ipynb) for
+it enriching discovery end to end.
+
 ## Guardrails and security model
 
 The execution boundary uses representational safety. The IR has no nodes for imports,
@@ -158,12 +212,16 @@ request limits, audit storage, and provider data-governance controls.
 Useful commands are collected in the Makefile:
 
 ```bash
-make install       # install locked dependencies
-make data          # generate deterministic sample Parquet
-make format        # apply Ruff formatting and safe fixes
-make check         # Ruff, mypy, and pytest
-make api           # run the development API
-make mcp           # run the read-only catalog MCP server over stdio
+make install           # install locked dependencies
+make install-examples  # also install the notebook/Plotly example extras
+make data              # generate deterministic sample Parquet
+make format            # apply Ruff formatting and safe fixes
+make check             # Ruff, mypy, and pytest
+make api               # run the development API
+make mcp               # run the read-only catalog MCP server over stdio
+make notebooks         # execute examples/agentic_analytics_workflow.ipynb and
+                        # regenerate docs/assets/agentic-workflow/*.png
+                        # (calls a real OpenRouter model; requires OPENROUTER_API_KEY)
 ```
 
 The complete quality-gate commands are:
@@ -175,9 +233,14 @@ poetry run mypy
 poetry run pytest
 ```
 
-Tests use `FakeLLMClient` and generated temporary Parquet data. The integration test covers
-question → discovery → planning → IR → validation → Spark → result → explanation through the
-HTTP API.
+Tests use `FakeLLMClient` and generated temporary Parquet data; no test makes a network request
+or requires a credential. The integration test covers question → discovery → planning → IR →
+validation → Spark → result → explanation through the HTTP API.
+
+`examples/agentic_analytics_workflow.ipynb` is the deliberate exception: it calls a real
+`OpenRouterClient` so you can see the actual model-driven pipeline, not a fixture, and requires
+`OPENROUTER_API_KEY`. `make notebooks` runs it locally; its CI job is separate from `pytest`,
+non-blocking, and only runs when an `OPENROUTER_API_KEY` repository secret is configured.
 
 ## Docker
 
@@ -204,6 +267,12 @@ docker run --rm -p 8000:8000 \
   cancellation is cooperative and does not provide a hard wall-clock bound.
 - There is no conversation state, clarification turn, authentication, or persistent audit
   store.
+- dbt integration is metadata-only: there is no dbt execution engine, no dbt Cloud
+  integration, and dbt tests are never run. A dbt model/source is matched to a physical
+  dataset by relation identifier, a simple name-based heuristic; it does not resolve
+  ambiguous or many-to-many relation mappings. Discovery boosting from dbt lineage is
+  lexical token overlap, the same approach `LocalParquetCatalog` already uses, not a
+  learned or embedding-based ranking.
 
 ## Roadmap
 

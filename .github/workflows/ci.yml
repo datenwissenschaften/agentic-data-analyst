@@ -38,3 +38,43 @@ jobs:
         run: poetry run mypy
       - name: Tests
         run: poetry run pytest
+
+  # Executes the example notebook against a real OpenRouter model (see examples/
+  # agentic_analytics_workflow.ipynb). It only runs when the repository has an
+  # OPENROUTER_API_KEY secret configured — otherwise it is skipped rather than
+  # failing every PR from forks or unconfigured clones. This job makes real,
+  # billed API calls; its own model output can legitimately vary between runs
+  # (a different but equally valid plan/IR), so unlike `quality` it is a smoke
+  # test for "does the pipeline still run end to end", not a byte-for-byte
+  # reproducibility check.
+  notebook:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ secrets.OPENROUTER_API_KEY != '' }}
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install Poetry
+        run: python -m pip install 'poetry==2.3.1'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-examples-${{ runner.os }}-py312-${{ hashFiles('poetry.lock') }}
+          restore-keys: poetry-examples-${{ runner.os }}-py312-
+      - name: Install locked dependencies
+        run: poetry sync --extras "dev examples" --no-interaction
+      - name: Generate sample data
+        run: poetry run agentic-data-generate --output data/sample
+      - name: Execute the example notebook
+        run: |
+          poetry run jupyter nbconvert --to notebook --execute \
+            --output-dir /tmp --output agentic_analytics_workflow.executed.ipynb \
+            examples/agentic_analytics_workflow.ipynb

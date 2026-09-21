@@ -3,6 +3,12 @@
 ## Generated-analysis threat model
 
 Natural-language questions, LLM responses, and descriptive catalog metadata are untrusted.
+This includes metadata read from dbt artifacts (`manifest.json`/`catalog.json`) when
+`DBT_PROJECT_PATH` is configured: model/source descriptions, column descriptions, tags, and
+declared test targets are attacker-influenceable free text in the same way a hand-written
+catalog sidecar description is, and flow through the identical `StrictModel` contracts and
+"untrusted data" prompt framing. A dbt model with no matching physical Parquet dataset can
+never be selected or executed; see `agentic_data_analyst/dbt/catalog.py` for the mechanism.
 The application never evaluates model-produced Python or SQL. Structured provider responses
 must validate as strict Pydantic models; unknown fields and unsupported discriminated-union
 operations fail closed.

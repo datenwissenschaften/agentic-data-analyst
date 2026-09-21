@@ -1,0 +1,506 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+    "dbt_version": "1.8.5",
+    "generated_at": "2025-06-01T00:00:00.000000Z",
+    "project_name": "gaming_analytics"
+  },
+  "nodes": {
+    "model.gaming_analytics.fct_player_sessions": {
+      "alias": "fct_player_sessions",
+      "columns": {
+        "event_count": {
+          "data_type": null,
+          "description": "Telemetry events recorded during this session.",
+          "name": "event_count",
+          "tags": []
+        },
+        "player_id": {
+          "data_type": null,
+          "description": "Player represented by this session row.",
+          "name": "player_id",
+          "tags": []
+        },
+        "region": {
+          "data_type": null,
+          "description": "Synthetic player region.",
+          "name": "region",
+          "tags": []
+        },
+        "retained_7d": {
+          "data_type": null,
+          "description": "True when this session occurred 7 or more days after the player's signup.",
+          "name": "retained_7d",
+          "tags": []
+        },
+        "segment": {
+          "data_type": null,
+          "description": "Behavioral segment (casual, core, or competitive).",
+          "name": "segment",
+          "tags": []
+        },
+        "session_id": {
+          "data_type": null,
+          "description": "Stable synthetic session identifier.",
+          "name": "session_id",
+          "tags": []
+        },
+        "session_start": {
+          "data_type": null,
+          "description": "UTC session start time.",
+          "name": "session_start",
+          "tags": []
+        },
+        "signup_at": {
+          "data_type": null,
+          "description": "UTC account creation time.",
+          "name": "signup_at",
+          "tags": []
+        }
+      },
+      "database": "analytics",
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "model.gaming_analytics.stg_sessions",
+          "model.gaming_analytics.stg_players",
+          "source.gaming_analytics.raw.raw_events"
+        ]
+      },
+      "description": "Session-level fact table joining player attributes with session engagement metrics, including a derived retained_7d flag (whether the session occurred at least 7 days after the player's signup) used to compute mart_player_retention.",
+      "name": "fct_player_sessions",
+      "relation_name": "\"analytics\".\"marts\".\"fct_player_sessions\"",
+      "resource_type": "model",
+      "schema": "marts",
+      "tags": [
+        "marts",
+        "fact",
+        "retention"
+      ],
+      "unique_id": "model.gaming_analytics.fct_player_sessions"
+    },
+    "model.gaming_analytics.mart_player_retention": {
+      "alias": "mart_player_retention",
+      "columns": {
+        "cohort_week": {
+          "data_type": null,
+          "description": "Week-truncated signup date defining the cohort.",
+          "name": "cohort_week",
+          "tags": []
+        },
+        "player_count": {
+          "data_type": null,
+          "description": "Distinct players backing the retention_7d estimate.",
+          "name": "player_count",
+          "tags": []
+        },
+        "region": {
+          "data_type": null,
+          "description": "Synthetic player region.",
+          "name": "region",
+          "tags": []
+        },
+        "retention_7d": {
+          "data_type": null,
+          "description": "Share of the cohort's sessions retained at 7 or more days.",
+          "name": "retention_7d",
+          "tags": []
+        },
+        "segment": {
+          "data_type": null,
+          "description": "Behavioral segment (casual, core, or competitive).",
+          "name": "segment",
+          "tags": []
+        }
+      },
+      "database": "analytics",
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "model.gaming_analytics.fct_player_sessions"
+        ]
+      },
+      "description": "Weekly 7-day player retention rate by segment and region, aggregated from fct_player_sessions. retention_7d is the share of a cohort's sessions that occurred 7 or more days after signup; player_count is the distinct player count backing that rate. A declining retention_7d for a segment/region/cohort combination is the primary signal analysts use this mart to investigate.",
+      "name": "mart_player_retention",
+      "relation_name": "\"analytics\".\"marts\".\"mart_player_retention\"",
+      "resource_type": "model",
+      "schema": "marts",
+      "tags": [
+        "marts",
+        "retention"
+      ],
+      "unique_id": "model.gaming_analytics.mart_player_retention"
+    },
+    "model.gaming_analytics.stg_players": {
+      "alias": "players",
+      "columns": {
+        "acquisition_channel": {
+          "data_type": null,
+          "description": "Channel credited with acquisition.",
+          "name": "acquisition_channel",
+          "tags": []
+        },
+        "player_id": {
+          "data_type": null,
+          "description": "Stable synthetic player identifier.",
+          "name": "player_id",
+          "tags": []
+        },
+        "region": {
+          "data_type": null,
+          "description": "Synthetic player region.",
+          "name": "region",
+          "tags": []
+        },
+        "segment": {
+          "data_type": null,
+          "description": "Behavioral segment assigned at signup.",
+          "name": "segment",
+          "tags": []
+        },
+        "signup_at": {
+          "data_type": null,
+          "description": "UTC account creation time.",
+          "name": "signup_at",
+          "tags": []
+        }
+      },
+      "database": "analytics",
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "source.gaming_analytics.raw.raw_players"
+        ]
+      },
+      "description": "Cleaned, one-row-per-player staging model built directly from the raw player source. Curated entry point other models join against for player attributes.",
+      "name": "stg_players",
+      "relation_name": "\"analytics\".\"staging\".\"players\"",
+      "resource_type": "model",
+      "schema": "staging",
+      "tags": [
+        "staging",
+        "player"
+      ],
+      "unique_id": "model.gaming_analytics.stg_players"
+    },
+    "model.gaming_analytics.stg_sessions": {
+      "alias": "sessions",
+      "columns": {
+        "device": {
+          "data_type": null,
+          "description": "Device family used for the session.",
+          "name": "device",
+          "tags": []
+        },
+        "duration_minutes": {
+          "data_type": null,
+          "description": "Session length in minutes.",
+          "name": "duration_minutes",
+          "tags": []
+        },
+        "player_id": {
+          "data_type": null,
+          "description": "Player that opened the session.",
+          "name": "player_id",
+          "tags": []
+        },
+        "session_end": {
+          "data_type": null,
+          "description": "UTC session end time.",
+          "name": "session_end",
+          "tags": []
+        },
+        "session_id": {
+          "data_type": null,
+          "description": "Stable synthetic session identifier.",
+          "name": "session_id",
+          "tags": []
+        },
+        "session_start": {
+          "data_type": null,
+          "description": "UTC session start time.",
+          "name": "session_start",
+          "tags": []
+        }
+      },
+      "database": "analytics",
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "source.gaming_analytics.raw.raw_sessions"
+        ]
+      },
+      "description": "Cleaned player session staging model built directly from the raw session source.",
+      "name": "stg_sessions",
+      "relation_name": "\"analytics\".\"staging\".\"sessions\"",
+      "resource_type": "model",
+      "schema": "staging",
+      "tags": [
+        "staging",
+        "session"
+      ],
+      "unique_id": "model.gaming_analytics.stg_sessions"
+    },
+    "test.gaming_analytics.accepted_values_stg_players_segment": {
+      "columns": {},
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "model.gaming_analytics.stg_players"
+        ]
+      },
+      "description": "",
+      "name": "accepted_values_stg_players_segment",
+      "resource_type": "test",
+      "tags": [],
+      "test_metadata": {
+        "kwargs": {
+          "column_name": "segment",
+          "values": [
+            "casual",
+            "core",
+            "competitive"
+          ]
+        },
+        "name": "accepted_values"
+      },
+      "unique_id": "test.gaming_analytics.accepted_values_stg_players_segment"
+    },
+    "test.gaming_analytics.not_null_stg_players_player_id": {
+      "columns": {},
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "model.gaming_analytics.stg_players"
+        ]
+      },
+      "description": "",
+      "name": "not_null_stg_players_player_id",
+      "resource_type": "test",
+      "tags": [],
+      "test_metadata": {
+        "kwargs": {
+          "column_name": "player_id"
+        },
+        "name": "not_null"
+      },
+      "unique_id": "test.gaming_analytics.not_null_stg_players_player_id"
+    },
+    "test.gaming_analytics.not_null_stg_sessions_player_id": {
+      "columns": {},
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "model.gaming_analytics.stg_sessions"
+        ]
+      },
+      "description": "",
+      "name": "not_null_stg_sessions_player_id",
+      "resource_type": "test",
+      "tags": [],
+      "test_metadata": {
+        "kwargs": {
+          "column_name": "player_id"
+        },
+        "name": "not_null"
+      },
+      "unique_id": "test.gaming_analytics.not_null_stg_sessions_player_id"
+    },
+    "test.gaming_analytics.not_null_stg_sessions_session_id": {
+      "columns": {},
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "model.gaming_analytics.stg_sessions"
+        ]
+      },
+      "description": "",
+      "name": "not_null_stg_sessions_session_id",
+      "resource_type": "test",
+      "tags": [],
+      "test_metadata": {
+        "kwargs": {
+          "column_name": "session_id"
+        },
+        "name": "not_null"
+      },
+      "unique_id": "test.gaming_analytics.not_null_stg_sessions_session_id"
+    },
+    "test.gaming_analytics.relationships_stg_sessions_player_id__player_id__ref_stg_players_": {
+      "columns": {},
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "model.gaming_analytics.stg_sessions",
+          "model.gaming_analytics.stg_players"
+        ]
+      },
+      "description": "",
+      "name": "relationships_stg_sessions_player_id__player_id__ref_stg_players_",
+      "resource_type": "test",
+      "tags": [],
+      "test_metadata": {
+        "kwargs": {
+          "column_name": "player_id",
+          "field": "player_id",
+          "to": "ref('stg_players')"
+        },
+        "name": "relationships"
+      },
+      "unique_id": "test.gaming_analytics.relationships_stg_sessions_player_id__player_id__ref_stg_players_"
+    },
+    "test.gaming_analytics.unique_stg_players_player_id": {
+      "columns": {},
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "model.gaming_analytics.stg_players"
+        ]
+      },
+      "description": "",
+      "name": "unique_stg_players_player_id",
+      "resource_type": "test",
+      "tags": [],
+      "test_metadata": {
+        "kwargs": {
+          "column_name": "player_id"
+        },
+        "name": "unique"
+      },
+      "unique_id": "test.gaming_analytics.unique_stg_players_player_id"
+    },
+    "test.gaming_analytics.unique_stg_sessions_session_id": {
+      "columns": {},
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "model.gaming_analytics.stg_sessions"
+        ]
+      },
+      "description": "",
+      "name": "unique_stg_sessions_session_id",
+      "resource_type": "test",
+      "tags": [],
+      "test_metadata": {
+        "kwargs": {
+          "column_name": "session_id"
+        },
+        "name": "unique"
+      },
+      "unique_id": "test.gaming_analytics.unique_stg_sessions_session_id"
+    }
+  },
+  "sources": {
+    "source.gaming_analytics.raw.raw_events": {
+      "columns": {
+        "event_id": {
+          "data_type": null,
+          "description": "Stable synthetic event identifier.",
+          "name": "event_id",
+          "tags": []
+        },
+        "session_id": {
+          "data_type": null,
+          "description": "Session containing the event.",
+          "name": "session_id",
+          "tags": []
+        }
+      },
+      "database": "analytics",
+      "description": "Raw product telemetry events emitted during player sessions.",
+      "identifier": "events",
+      "name": "raw_events",
+      "relation_name": "\"analytics\".\"raw\".\"events\"",
+      "resource_type": "source",
+      "schema": "raw",
+      "source_name": "raw",
+      "tags": [
+        "raw",
+        "event"
+      ],
+      "unique_id": "source.gaming_analytics.raw.raw_events"
+    },
+    "source.gaming_analytics.raw.raw_players": {
+      "columns": {
+        "acquisition_channel": {
+          "data_type": null,
+          "description": "Channel credited with acquisition.",
+          "name": "acquisition_channel",
+          "tags": []
+        },
+        "player_id": {
+          "data_type": null,
+          "description": "Stable synthetic player identifier.",
+          "name": "player_id",
+          "tags": []
+        },
+        "region": {
+          "data_type": null,
+          "description": "Synthetic player region.",
+          "name": "region",
+          "tags": []
+        },
+        "segment": {
+          "data_type": null,
+          "description": "Behavioral segment assigned at signup.",
+          "name": "segment",
+          "tags": []
+        },
+        "signup_at": {
+          "data_type": null,
+          "description": "UTC account creation time.",
+          "name": "signup_at",
+          "tags": []
+        }
+      },
+      "database": "analytics",
+      "description": "Raw player account, acquisition, geography, and behavioral segment attributes.",
+      "identifier": "players",
+      "name": "raw_players",
+      "relation_name": "\"analytics\".\"raw\".\"players\"",
+      "resource_type": "source",
+      "schema": "raw",
+      "source_name": "raw",
+      "tags": [
+        "raw",
+        "player"
+      ],
+      "unique_id": "source.gaming_analytics.raw.raw_players"
+    },
+    "source.gaming_analytics.raw.raw_sessions": {
+      "columns": {
+        "player_id": {
+          "data_type": null,
+          "description": "Player that opened the session.",
+          "name": "player_id",
+          "tags": []
+        },
+        "session_id": {
+          "data_type": null,
+          "description": "Stable synthetic session identifier.",
+          "name": "session_id",
+          "tags": []
+        },
+        "session_start": {
+          "data_type": null,
+          "description": "UTC session start time.",
+          "name": "session_start",
+          "tags": []
+        }
+      },
+      "database": "analytics",
+      "description": "Raw player login sessions with duration and device context.",
+      "identifier": "sessions",
+      "name": "raw_sessions",
+      "relation_name": "\"analytics\".\"raw\".\"sessions\"",
+      "resource_type": "source",
+      "schema": "raw",
+      "source_name": "raw",
+      "tags": [
+        "raw",
+        "session"
+      ],
+      "unique_id": "source.gaming_analytics.raw.raw_sessions"
+    }
+  }
+}

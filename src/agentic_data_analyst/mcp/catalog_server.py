@@ -6,14 +6,14 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from agentic_data_analyst.catalog.local import LocalParquetCatalog
+from agentic_data_analyst.bootstrap import build_catalog
 from agentic_data_analyst.config import Settings
 
 
 def create_server(settings: Settings | None = None) -> FastMCP:
     """Expose catalog search and schema lookup as read-only MCP tools."""
     resolved = settings or Settings.from_env()
-    catalog = LocalParquetCatalog(resolved.catalog_path)
+    catalog = build_catalog(resolved)
     server = FastMCP("agentic-data-analyst-catalog")
 
     @server.tool()

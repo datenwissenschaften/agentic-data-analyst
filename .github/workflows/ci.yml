@@ -36,8 +36,10 @@ jobs:
         run: poetry run ruff format --check .
       - name: Mypy
         run: poetry run mypy
-      - name: Tests
-        run: poetry run pytest
+      - name: Tests with coverage
+        run: |
+          poetry run pip install pytest-cov
+          poetry run pytest --cov=src --cov-report=term-missing --cov-report=xml
 
   # The `secrets` context isn't readable in a job-level `if:`, so whether
   # OPENROUTER_API_KEY is configured has to be resolved inside a step (where

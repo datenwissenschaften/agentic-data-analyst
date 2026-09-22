@@ -39,6 +39,20 @@ jobs:
       - name: Tests
         run: poetry run pytest
 
+  # The `secrets` context isn't readable in a job-level `if:`, so whether
+  # OPENROUTER_API_KEY is configured has to be resolved inside a step (where
+  # secrets are available) and passed on as a job output for `notebook` to
+  # gate on via `needs`.
+  check-secret:
+    runs-on: ubuntu-latest
+    outputs:
+      has_key: ${{ steps.check.outputs.has_key }}
+    steps:
+      - id: check
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: echo "has_key=${{ env.OPENROUTER_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
   # Executes the example notebook against a real OpenRouter model (see examples/
   # agentic_analytics_workflow.ipynb). It only runs when the repository has an
   # OPENROUTER_API_KEY secret configured — otherwise it is skipped rather than
@@ -48,9 +62,10 @@ jobs:
   # test for "does the pipeline still run end to end", not a byte-for-byte
   # reproducibility check.
   notebook:
+    needs: check-secret
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: ${{ secrets.OPENROUTER_API_KEY != '' }}
+    if: needs.check-secret.outputs.has_key == 'true'
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:

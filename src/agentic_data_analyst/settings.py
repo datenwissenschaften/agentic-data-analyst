@@ -22,13 +22,14 @@ def _effort(value: str) -> Effort:
     raise ValueError(f"ANALYST_EFFORT must be one of {', '.join(EFFORTS)}, got {value!r}")
 
 
-# Haiku 4.5 is the cheapest current model; switch to claude-sonnet-5-5 or claude-opus-5-5 for harder questions.
-DEFAULT_MODEL = "claude-haiku-4-5"
+# Writing correct SQL over joins needs the strongest model; claude-haiku-4-5 is the cheapest alternative.
+DEFAULT_MODEL = "claude-opus-5-5"
 MODEL = os.environ.get("ANALYST_MODEL", DEFAULT_MODEL)
-# Ignored by Haiku 4.5, which has no effort setting (see request_options).
-EFFORT = _effort(os.environ.get("ANALYST_EFFORT", "low"))
-# The reviewer only judges one query at a time, so the cheapest model is enough.
-REVIEWER_MODEL = os.environ.get("ANALYST_REVIEWER_MODEL", DEFAULT_MODEL)
+# Medium: SQL over joins benefits from some thinking; raise it for harder questions. Ignored by Haiku 4.5.
+EFFORT = _effort(os.environ.get("ANALYST_EFFORT", "medium"))
+# The reviewer only judges one query at a time, so a faster, cheaper model at low effort is enough.
+DEFAULT_REVIEWER_MODEL = "claude-sonnet-5-5"
+REVIEWER_MODEL = os.environ.get("ANALYST_REVIEWER_MODEL", DEFAULT_REVIEWER_MODEL)
 REVIEWER_EFFORT = _effort(os.environ.get("ANALYST_REVIEWER_EFFORT", "low"))
 # Hard spending limits in USD. An answer stops before the next model call once it has cost more than its budget; a
 # chat stops taking questions once it has cost more than its budget. Unpriced models fail closed (see agent.py).

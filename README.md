@@ -13,10 +13,10 @@ framework.
 ```mermaid
 flowchart LR
     U[User question] --> G{Input guard}
-    G -->|ok| A[Analyst agent<br/>Claude Haiku]
+    G -->|ok| A[Analyst agent<br/>Claude Opus]
     A -->|list_tables / describe_table| M[(Schema metadata<br/>no rows)]
     A -->|run_sql| C{Deterministic checks<br/>one SELECT, table allowlist}
-    C -->|ok| R[SQL Reviewer agent<br/>Claude Haiku]
+    C -->|ok| R[SQL Reviewer agent<br/>Claude Sonnet]
     C -->|rejected| A
     R -->|approved| D[(DuckDB<br/>read-only sandbox)]
     R -->|issues| A
@@ -61,11 +61,11 @@ network access, `getenv`, writes and setting changes even when the allowlist is 
 ## Cost controls
 
 - **Prompt caching**: system prompt and tools are cached, and the growing conversation is auto-cached. The reviewer's
-  instructions and schema are cached too. Haiku 4.5 caches only prefixes of 4,096 tokens or more, so the first turns
-  of a chat are not cached; later turns are, once the schema is in the conversation.
-- **Cheapest model by default**: both agents run on Claude Haiku 4.5 ($1 / $5 per million tokens). Set
-  `ANALYST_MODEL` to `claude-sonnet-5-5` or `claude-opus-5-5` for harder questions; the request options
-  (effort, safety fallbacks) adapt to the model (`settings.request_options`).
+  instructions and schema are cached too. (On Haiku 4.5, which caches only prefixes of 4,096 tokens or more, the
+  first turns of a chat are not cached.)
+- **Right-sized models**: Opus 5.5 at medium effort writes the SQL; Sonnet 5.5 at low effort only judges one query.
+  For the lowest cost, set both to `claude-haiku-4-5` ($1 / $5 per million tokens); the request options (effort,
+  safety fallbacks) adapt to the model (`settings.request_options`).
 - **Cheap checks first**: unsafe or invalid SQL is rejected by the parser before the reviewer is called, so it
   costs no review.
 - **Small tools, small results**: the model fetches only the tables it needs; results are capped at 200 rows,

@@ -23,10 +23,11 @@ def sends_options(options: dict[str, Any], sends: str) -> None:
         assert options["fallbacks"] == "default"
 
 
-@then(parsers.parse('both agents default to "{model}"'))
-def defaults(model: str) -> None:
-    # The default, not MODEL: a local .env may override it.
-    assert model == settings.DEFAULT_MODEL
+@then(parsers.parse('the analyst defaults to "{analyst}" and the reviewer to "{reviewer}"'))
+def defaults(analyst: str, reviewer: str) -> None:
+    # The defaults, not MODEL: a local .env may override them.
+    assert analyst == settings.DEFAULT_MODEL
+    assert reviewer == settings.DEFAULT_REVIEWER_MODEL
 
 
 @then(parsers.parse('"{model}" has a price'))

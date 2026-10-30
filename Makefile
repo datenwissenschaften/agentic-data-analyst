@@ -1,40 +1,33 @@
-.PHONY: install install-examples data format lint typecheck test check api mcp notebooks
+.PHONY: install data lint format typecheck test check fix run
+
+DATABASE = data/speedruns.duckdb
 
 install:
-	poetry install --extras dev
+	uv sync --dev
 
-install-examples:
-	poetry install --extras "dev examples"
+# The seed is deterministic, so the database is rebuilt only when it is missing.
+$(DATABASE):
+	uv run python -m agentic_data_analyst.seed $(DATABASE)
 
-data:
-	poetry run agentic-data-generate --output data/sample
-
-format:
-	poetry run ruff check --fix .
-	poetry run ruff format .
+data: $(DATABASE)
 
 lint:
-	poetry run ruff check .
-	poetry run ruff format --check .
+	uv run ruff check .
+
+format:
+	uv run ruff format --check .
 
 typecheck:
-	poetry run mypy
+	uv run mypy src tests
 
 test:
-	poetry run pytest
+	uv run pytest
 
-check: format lint typecheck test
+check: lint format typecheck test
 
-api:
-	poetry run uvicorn agentic_data_analyst.api.app:app --reload
+fix:
+	uv run ruff check --fix .
+	uv run ruff format .
 
-mcp:
-	poetry run agentic-data-mcp
-
-# Executes examples/agentic_analytics_workflow.ipynb top to bottom, regenerating its
-# outputs and every PNG under docs/assets/agentic-workflow/ from the notebook's own
-# Plotly figures. Fails the command if any cell raises. Requires `make install-examples`
-# and a real OPENROUTER_API_KEY in .env: this notebook calls OpenRouterClient directly,
-# not a fixture, so its exact plan/wording can vary between runs.
-notebooks:
-	poetry run jupyter nbconvert --to notebook --execute --inplace examples/agentic_analytics_workflow.ipynb
+run: $(DATABASE)
+	uv run chainlit run app.py

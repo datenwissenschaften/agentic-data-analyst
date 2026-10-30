@@ -8,6 +8,7 @@ import anthropic
 import chainlit as cl
 import pandas as pd
 from anthropic.types.beta import BetaMessageParam
+from chainlit.element import Element
 from loguru import logger
 
 from agentic_data_analyst.agent import answer, parse_result
@@ -54,12 +55,12 @@ async def on_chat_start() -> None:
 class FlowView:
     """Shows one answer's flow as nested steps and a trail, and collects the tables and charts the analyst chose to show.
 
-    Analyst -> list_tables -> describe_table -> SQL Reviewer -> DuckDB -> chart -> answer
+    Analyst -> list_tables -> describe_table -> SQL Reviewer -> DuckDB -> table / chart -> answer
     """
 
     def __init__(self) -> None:
         self.trail: list[str] = ["Analyst"]
-        self.elements: list[cl.Element] = []
+        self.elements: list[Element] = []
         self.latest: QueryResult | None = None
 
     async def show_step(self, name: str, arguments: dict[str, Any], output: str, failed: bool) -> None:

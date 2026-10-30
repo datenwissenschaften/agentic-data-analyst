@@ -9,87 +9,16 @@ permissions:
   contents: read
 
 jobs:
-  quality:
+  check:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.12"
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-      - name: Install Poetry
-        run: python -m pip install 'poetry==2.3.1'
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/pypoetry
-          key: poetry-${{ runner.os }}-py312-${{ hashFiles('poetry.lock') }}
-          restore-keys: poetry-${{ runner.os }}-py312-
+          enable-cache: true
       - name: Install locked dependencies
-        run: poetry sync --extras dev --no-interaction
-      - name: Ruff lint
-        run: poetry run ruff check .
-      - name: Ruff format
-        run: poetry run ruff format --check .
-      - name: Mypy
-        run: poetry run mypy
-      - name: Tests
-        run: poetry run pytest
-
-  # The `secrets` context isn't readable in a job-level `if:`, so whether
-  # OPENROUTER_API_KEY is configured has to be resolved inside a step (where
-  # secrets are available) and passed on as a job output for `notebook` to
-  # gate on via `needs`.
-  check-secret:
-    runs-on: ubuntu-latest
-    outputs:
-      has_key: ${{ steps.check.outputs.has_key }}
-    steps:
-      - id: check
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: echo "has_key=${{ env.OPENROUTER_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
-
-  # Executes the example notebook against a real OpenRouter model (see examples/
-  # agentic_analytics_workflow.ipynb). It only runs when the repository has an
-  # OPENROUTER_API_KEY secret configured — otherwise it is skipped rather than
-  # failing every PR from forks or unconfigured clones. This job makes real,
-  # billed API calls; its own model output can legitimately vary between runs
-  # (a different but equally valid plan/IR), so unlike `quality` it is a smoke
-  # test for "does the pipeline still run end to end", not a byte-for-byte
-  # reproducibility check.
-  notebook:
-    needs: check-secret
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    if: needs.check-secret.outputs.has_key == 'true'
-    env:
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-      - name: Install Poetry
-        run: python -m pip install 'poetry==2.3.1'
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/pypoetry
-          key: poetry-examples-${{ runner.os }}-py312-${{ hashFiles('poetry.lock') }}
-          restore-keys: poetry-examples-${{ runner.os }}-py312-
-      - name: Install locked dependencies
-        run: poetry sync --extras "dev examples" --no-interaction
-      - name: Generate sample data
-        run: poetry run agentic-data-generate --output data/sample
-      - name: Execute the example notebook
-        run: |
-          poetry run jupyter nbconvert --to notebook --execute \
-            --output-dir /tmp --output agentic_analytics_workflow.executed.ipynb \
-            examples/agentic_analytics_workflow.ipynb
+        run: uv sync --dev --locked
+      # Lint, format, strict mypy and the BDD suite. The models are scripted, so no API key or network is needed.
+      - name: make check
+        run: make check

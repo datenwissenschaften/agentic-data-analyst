@@ -1,287 +1,126 @@
 # agentic-data-analyst
 
-`agentic-data-analyst` is an open-source reference implementation of a guarded analytics
-agent. It turns a natural-language question into a catalog-grounded plan, a typed analysis
-intermediate representation (IR), compiled PySpark DataFrame operations, bounded results,
-and a concise explanation.
+Chat with a speedrun database in which human speedrunners and AI agents race retro games. Claude never reads the
+data directly. It inspects the schema, **generates SQL**, a second agent reviews that SQL, DuckDB runs it behind
+deterministic guards, and the answer comes in text - with a table or chart when you ask for one (the SQL and the flow sit in the collapsible details) in a
+[Chainlit](https://chainlit.io) chat.
 
-The repository is structured as an application rather than an agent-framework demo. LLM
-communication, catalog access, planning, generation, validation, Spark execution,
-interpretation, and HTTP transport have separate contracts. Generated text is never passed
-to Python `exec()`.
+The stack is deliberately small: the Anthropic SDK with plain tool calls, DuckDB, Chainlit. There is no agent
+framework.
 
-## Architecture
+## Flow
 
 ```mermaid
 flowchart LR
-    Q[Analytics question] --> D[Metadata discovery]
-    D --> C[(Catalog interface)]
-    D --> P[Structured planner]
-    P --> G[IR generator]
-    C --> P
-    C --> G
-    G --> V[Lineage and policy validator]
-    V -->|valid IR| S[PySpark compiler]
-    S --> E[Controlled Spark runner]
-    E --> R[Structured result]
-    R --> I[Result interpreter]
-    I --> A[API response]
-    C -. read-only tools .-> M[MCP catalog server]
-    T[dbt manifest.json / catalog.json] -. descriptions, lineage, tests .-> C
+    U[User question] --> G{Input guard}
+    G -->|ok| A[Analyst agent<br/>Claude Haiku]
+    A -->|list_tables / describe_table| M[(Schema metadata<br/>no rows)]
+    A -->|run_sql| C{Deterministic checks<br/>one SELECT, table allowlist}
+    C -->|ok| R[SQL Reviewer agent<br/>Claude Haiku]
+    C -->|rejected| A
+    R -->|approved| D[(DuckDB<br/>read-only sandbox)]
+    R -->|issues| A
+    D -->|rows| A
+    A -->|show_table / show_chart, if asked| P[Table / Plotly chart]
+    A --> Ans[Answer; table and chart if asked]
 ```
 
-The first model call selects datasets from lightweight catalog search results. Only those
-schemas are sent into planning and generation. The LLM produces strict Pydantic objects at
-each stage. The final analysis is a closed, versioned IR supporting dataset reads, joins,
-filters, projections, aggregations, sorting, and limits. A deterministic compiler maps that
-IR to Spark's DataFrame API. An optional dbt artifact reader enriches the catalog with
-descriptions, lineage, and declared data-quality tests without ever granting a dbt-only
-model execution access — see [dbt metadata integration](#dbt-metadata-integration).
+Chainlit shows each answer as one **Analyst** step with the flow nested inside it (list tables, describe table, SQL
+Reviewer, DuckDB, table, chart). The step is collapsed; its output is a trail such as
+`Analyst → tables → schema runs → reviewer ✓ → DuckDB 12 rows → line chart → answer`.
 
-See [docs/architecture.md](docs/architecture.md) for the dependency rules, execution model,
-security boundary, and extension points.
+| Tool | Purpose |
+| --- | --- |
+| `list_tables` | Table names, descriptions, approximate row counts |
+| `describe_table(table)` | Columns (type, nullable, description) and keys of one table |
+| `run_sql(sql)` | Check, review and run one SELECT; up to 200 rows back |
+| `show_table()` | The latest result as a table - only when the user asks for a table or list |
+| `show_chart(kind, x, y, color, title)` | Bar, line or scatter chart of the latest result - only when the user asks for a chart |
 
-<p align="center">
-  <img src="docs/assets/agentic-workflow/session-duration-by-segment.png" width="640"
-       alt="Average session duration by player segment, computed by the example workflow">
-</p>
+## Safety: deterministic first, LLM judge on top
 
-See the end-to-end Jupyter example:
-[`examples/agentic_analytics_workflow.ipynb`](examples/agentic_analytics_workflow.ipynb).
+The reviewer agent catches *wrong* SQL (mixed categories, bad joins). It is not what keeps the system safe. These
+layers hold whatever either model does:
 
-## Capabilities
+| Layer | Mechanism | Where |
+| --- | --- | --- |
+| Input | Empty and over-long (more than 2,000 characters) messages rejected before any model call | `guardrails.py` |
+| Data access | The model sees metadata only, never table rows, except the rows of its own queries | `database.py` |
+| Statement | DuckDB's parser: exactly one statement, and it must be a `SELECT` (no DDL, DML, `COPY`, `ATTACH`, `SET`, `INSTALL`) | `check_sql` |
+| Allowlist | DuckDB's syntax tree: only the six data tables and CTEs; table functions only `range`/`generate_series`/`unnest` (no `read_csv`, `duckdb_settings()`, file paths) | `check_sql` |
+| Sandbox | Read-only file, `enable_external_access=false` (no files, no network), extension autoload/install off, 1 GB memory, 2 threads, `lock_configuration=true` | `connect` |
+| Runtime | 20 s deadline via `interrupt()`, at most 200 rows fetched, SQL at most 8,000 characters | `run_query` |
+| Loop | At most 8 model rounds per answer; tool errors go back to the model instead of crashing | `agent.py` |
+| Cost | Hard budget per answer ($0.50) and per chat ($5.00); an unknown price fails closed | `agent.py`, `app.py` |
+| Output | Chainlit renders no HTML (`unsafe_allow_html = false`); charts are built from the rows by code, not by the model | `.chainlit/config.toml`, `charts.py` |
+| Secrets | API key only in the environment (`.env`, git-ignored) | `settings.py` |
 
-- Local discovery of Parquet datasets, Arrow data types, descriptions, tags, and declared
-  relationships
-- Optional dbt metadata integration: descriptions, declared column types, direct lineage,
-  and declared data-quality tests read from a dbt project's `manifest.json`/`catalog.json`
-  enrich discovery without dbt-core at runtime or any change to what can be executed
-- Focused metadata retrieval instead of placing the entire catalog in each prompt
-- OpenRouter-compatible strict JSON Schema responses through a small provider interface
-- Deterministic fake LLM responses for tests
-- Typed, inspectable `spark_dataframe_ir/v1` with column-lineage validation
-- Read-only PySpark execution with a mandatory output limit and JSON-safe results
-- FastAPI health and analysis endpoints
-- Read-only MCP tools for catalog search and schema lookup
-- Reproducible synthetic players, sessions, matches, events, and purchases
-- Unit and end-to-end integration tests that require neither credentials nor network access
+`tests/bdd/features/queries.feature` proves the allowlist and, separately, that the database blocks file reads,
+network access, `getenv`, writes and setting changes even when the allowlist is bypassed.
+
+## Cost controls
+
+- **Prompt caching**: system prompt and tools are cached, and the growing conversation is auto-cached. The reviewer's
+  instructions and schema are cached too. Haiku 4.5 caches only prefixes of 4,096 tokens or more, so the first turns
+  of a chat are not cached; later turns are, once the schema is in the conversation.
+- **Cheapest model by default**: both agents run on Claude Haiku 4.5 ($1 / $5 per million tokens). Set
+  `ANALYST_MODEL` to `claude-sonnet-5-5` or `claude-opus-5-5` for harder questions; the request options
+  (effort, safety fallbacks) adapt to the model (`settings.request_options`).
+- **Cheap checks first**: unsafe or invalid SQL is rejected by the parser before the reviewer is called, so it
+  costs no review.
+- **Small tools, small results**: the model fetches only the tables it needs; results are capped at 200 rows,
+  columnar and rounded.
+- **Visible cost**: every answer shows its tokens and cost, plus the chat total.
+- **Hard budgets**: see the safety table.
+
+## Data
+
+`make data` writes `data/speedruns.duckdb` from a deterministic seed (`src/agentic_data_analyst/seed.py`). Everything
+in it is synthetic: five invented games, 36 human runners and 6 AI agents using tool-assisted search, reinforcement
+learning, imitation learning and LLM agents. About 8,400 runs and 44,000 level splits, January 2025 to September 2026.
+Tables: `games`, `categories`, `levels`, `runners`, `runs`, `splits`.
+
+Descriptions and keys live in the database itself (`COMMENT ON`, `PRIMARY KEY`, `REFERENCES`) and are read back from
+`duckdb_tables()`, `duckdb_columns()` and `duckdb_constraints()`. That gives dbt-style schema documentation without
+dbt.
 
 ## Quick start
 
-Prerequisites are Python 3.12 and Java 17 or newer. The project uses Poetry for its lock file:
+Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
-poetry install --extras dev
-poetry run agentic-data-generate --output data/sample
+make install
+cp .env.example .env   # set ANTHROPIC_API_KEY
+make run               # builds the database if missing, then opens Chainlit on http://localhost:8000
 ```
-
-Copy the example configuration, set `OPENROUTER_API_KEY`, and choose a model that
-supports strict structured output:
 
 ```bash
-cp .env.example .env
-# Edit .env and replace OPENROUTER_API_KEY with your key.
-poetry run uvicorn agentic_data_analyst.api.app:app --reload
+make check             # ruff, ruff format, strict mypy, pytest-bdd - no API key or network needed
 ```
 
-The application reads `.env` from its working directory. Process environment variables
-override matching `.env` values, so production deployments can inject configuration
-without changing the file.
+Docker: `docker build -t agentic-data-analyst . && docker run --rm -p 8000:8000 -e ANTHROPIC_API_KEY agentic-data-analyst`
 
-The service is available at `http://localhost:8000`; its OpenAPI UI is at `/docs`.
+## Layout
 
-## Example request
-
-```bash
-curl -s http://localhost:8000/analysis \
-  -H 'content-type: application/json' \
-  -d @examples/analysis_request.json
-```
-
-A successful response contains the plan, logical datasets, generated IR, a review-oriented
-PySpark preview, validation findings, materialized rows, per-stage timings, and an
-explanation. A shortened representative shape is:
-
-```json
-{
-  "question": "What is average session duration by player segment?",
-  "datasets_used": ["players", "sessions"],
-  "validation": {"is_valid": true, "issues": []},
-  "result": {
-    "columns": ["segment", "average_duration", "session_count"],
-    "rows": [
-      {"segment": "competitive", "average_duration": 31.4, "session_count": 418}
-    ],
-    "row_count": 3,
-    "truncated": false,
-    "duration_ms": 842
-  },
-  "explanation": "The result compares mean session minutes and observed session counts by segment."
-}
-```
-
-Values depend on the generated snapshot and the analysis selected by the configured model.
-
-## Workflow
-
-1. Catalog search ranks compact dataset summaries against the question.
-2. The discovery model chooses the smallest useful dataset set from those candidates.
-3. The planner sees only the selected annotated schemas and returns an `AnalysisPlan`.
-4. The generator converts the plan to `spark_dataframe_ir/v1`.
-5. Validation checks catalog authorization, canonical physical paths, selected columns,
-   relation lineage, expression type compatibility, centralized complexity limits,
-   supported operations, and the final row limit. A successful check creates an internal
-   capability containing the authorized path and output-lineage snapshot.
-6. The compiler and review-preview renderer accept that capability and map the IR to Spark
-   DataFrame calls; neither looks paths up again nor evaluates source code supplied by the
-   model.
-7. Immediately before execution, the runner repeats authorization, collects at most the
-   requested maximum plus one truncation sentinel, and normalizes values for JSON.
-8. An optional structured model call explains the result rows.
-
-Each stage is directly testable and reports elapsed time. Provider prompts remain internal
-and are not returned by the API.
-
-## dbt metadata integration
-
-Setting `DBT_PROJECT_PATH` to a dbt project's compiled `target/` directory wraps the local
-catalog with `DbtEnrichedCatalog`, which enriches — never replaces — catalog discovery:
-
-- **Consumes** `manifest.json` (required) and `catalog.json` (optional) — the artifacts dbt
-  itself writes after `dbt parse` / `dbt docs generate`. dbt-core is never imported or
-  invoked; artifacts are parsed with typed internal Pydantic models. Tested against dbt
-  manifest schema versions v11 and v12 and catalog schema version v1; anything else raises
-  `DbtArtifactError` rather than being reinterpreted.
-- **Extracts** model/source names, relation identity (database/schema/identifier),
-  descriptions, column descriptions and declared types, tags, and selected generic tests
-  (`not_null`, `unique`, `relationships`, `accepted_values`).
-- **Matches** each dbt model/source to a physical catalog dataset by relation identifier
-  (preferring a model over a source when both resolve to the same physical name, since it is
-  the more curated layer). A dbt node with no matching physical dataset — a downstream mart
-  that was never materialized as Parquet, for example — is never selectable or executable:
-  only its *text* can raise the search ranking of the physical datasets it depends on.
-- **Derives lineage deterministically**: only direct upstream/downstream edges from the
-  manifest's declared dependency graph are represented; a reference to a missing or pruned
-  node is skipped, and cycles cannot cause unbounded traversal because no transitive closure
-  is computed.
-- **Surfaces dbt tests as declared quality expectations, not runtime guarantees.** A
-  `not_null`/`unique`/`relationships`/`accepted_values` test appearing in
-  `quality_expectations` means dbt declares that expectation; this project never runs dbt
-  tests and treats their presence as metadata, not proof the current Parquet snapshot passes
-  them.
-- **Never weakens the execution boundary.** dbt-sourced text flows through the same
-  `StrictModel` contracts, size limits, and "untrusted data" prompt framing as all other
-  catalog metadata (see [Guardrails and security model](#guardrails-and-security-model)); it
-  cannot become an instruction, a path, or an expression, and `AnalysisValidator`
-  re-authorizes every dataset from the physical catalog independently of anything dbt
-  attaches.
-
-See [`examples/dbt/gaming_analytics/`](examples/dbt/gaming_analytics/) for a synthetic
-example project (with committed, hand-authored `manifest.json`/`catalog.json` so the example
-runs without installing dbt) and
-[`examples/agentic_analytics_workflow.ipynb`](examples/agentic_analytics_workflow.ipynb) for
-it enriching discovery end to end.
-
-## Guardrails and security model
-
-The execution boundary uses representational safety. The IR has no nodes for imports,
-filesystem APIs, environment access, networking, processes, dynamic evaluation, Spark SQL,
-or writes. Pydantic rejects unknown operations and fields before semantic validation. The
-validator then resolves every dataset and column against the catalog, canonicalizes each
-existing Parquet path and verifies containment with a path-aware check, validates
-intermediate relation lineage and compatible scalar expression types, enforces plan and
-expression complexity limits, and requires a bounded final output. Preview rendering occurs
-only after this authorization. The runner performs authorization immediately before
-execution and the compiler can read only the resulting path snapshot.
-
-Provider calls use strict JSON Schema, an explicit timeout, and a bounded response body.
-Questions and catalog text are marked as untrusted prompt data; prompt wording is not the
-security boundary. See [SECURITY.md](SECURITY.md) for the threat model and reporting process.
-
-This is defense in depth for the generated analysis, not a general hostile multi-tenant
-sandbox. Spark and the API still run in the application process, the OpenRouter provider
-receives the question and selected metadata, and operators control the catalog directory.
-The execution deadline uses Spark job-group cancellation and is best effort; it cannot
-forcibly stop blocked JVM or native code.
-
-For untrusted tenants, add process or container isolation, resource quotas, authentication,
-request limits, audit storage, and provider data-governance controls.
-
-## Development
-
-Useful commands are collected in the Makefile:
-
-```bash
-make install           # install locked dependencies
-make install-examples  # also install the notebook/Plotly example extras
-make data              # generate deterministic sample Parquet
-make format            # apply Ruff formatting and safe fixes
-make check             # Ruff, mypy, and pytest
-make api               # run the development API
-make mcp               # run the read-only catalog MCP server over stdio
-make notebooks         # execute examples/agentic_analytics_workflow.ipynb and
-                        # regenerate docs/assets/agentic-workflow/*.png
-                        # (calls a real OpenRouter model; requires OPENROUTER_API_KEY)
-```
-
-The complete quality-gate commands are:
-
-```bash
-poetry run ruff check .
-poetry run ruff format --check .
-poetry run mypy
-poetry run pytest
-```
-
-Tests use `FakeLLMClient` and generated temporary Parquet data; no test makes a network request
-or requires a credential. The integration test covers question → discovery → planning → IR →
-validation → Spark → result → explanation through the HTTP API.
-
-`examples/agentic_analytics_workflow.ipynb` is the deliberate exception: it calls a real
-`OpenRouterClient` so you can see the actual model-driven pipeline, not a fixture, and requires
-`OPENROUTER_API_KEY`. `make notebooks` runs it locally; its CI job is separate from `pytest`,
-non-blocking, and only runs when an `OPENROUTER_API_KEY` repository secret is configured.
-
-## Docker
-
-The image includes Java, installs the package, generates a small deterministic catalog, and
-runs the API as an unprivileged user:
-
-```bash
-docker build -t agentic-data-analyst .
-docker run --rm -p 8000:8000 \
-  -e OPENROUTER_API_KEY \
-  -e OPENROUTER_MODEL \
-  agentic-data-analyst
-```
+| File | Responsibility |
+| --- | --- |
+| `app.py` | Chainlit UI: flow steps, SQL, tables, charts, cost line, session budget |
+| `agent.py` | Analyst prompt, tools, the bounded tool loop, answer budget |
+| `reviewer.py` | SQL reviewer agent (structured output) |
+| `database.py` | Read-only sandboxed connection, schema inspection, SQL checks, bounded execution |
+| `charts.py` | Plotly figures from result rows |
+| `seed.py` | Synthetic speedrun database |
+| `guardrails.py`, `usage.py`, `settings.py`, `log.py` | Input checks, token cost, configuration, logging |
 
 ## Limitations
 
-- The IR intentionally covers a compact analytical subset. Window functions, pivots,
-  unions, and reusable subqueries are not implemented.
-- Relative phrases such as “last month” are interpreted by the model; there is no dedicated
-  semantic date resolver yet.
-- Catalog ranking is lexical and local. It does not provide statistics, access control, or
-  an enterprise metastore implementation.
-- Execution is local in-process Spark without per-request CPU or memory quotas. Deadline
-  cancellation is cooperative and does not provide a hard wall-clock bound.
-- There is no conversation state, clarification turn, authentication, or persistent audit
-  store.
-- dbt integration is metadata-only: there is no dbt execution engine, no dbt Cloud
-  integration, and dbt tests are never run. A dbt model/source is matched to a physical
-  dataset by relation identifier, a simple name-based heuristic; it does not resolve
-  ambiguous or many-to-many relation mappings. Discovery boosting from dbt lineage is
-  lexical token overlap, the same approach `LocalParquetCatalog` already uses, not a
-  learned or embedding-based ranking.
-
-## Roadmap
-
-1. Add a semantic date and metric layer so retention, churn, and conversion definitions are
-   versioned independently from prompts.
-2. Run Spark jobs in isolated workers with cancellation, resource budgets, and durable audit
-   events.
-3. Add an enterprise catalog adapter and policy hooks while preserving the current `Catalog`
-   interface.
+- No authentication: the per-chat budget resets with a new chat, so a real deployment needs login and a per-user
+  budget or rate limit.
+- One process, one DuckDB file. Fine for this dataset; a larger one would need a separate query worker.
+- Prompt injection through the question can still make the analyst write a *different* SELECT. The deterministic
+  layers limit any query to reading these six tables, within the deadline, the row cap and the budget.
+- The model-facing behaviour (answer quality, injection resistance) is not covered by the automated tests, which
+  script both models.
 
 ## License
 

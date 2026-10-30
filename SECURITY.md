@@ -1,47 +1,32 @@
 # Security policy
 
-## Generated-analysis threat model
+## Threat model
 
-Natural-language questions, LLM responses, and descriptive catalog metadata are untrusted.
-This includes metadata read from dbt artifacts (`manifest.json`/`catalog.json`) when
-`DBT_PROJECT_PATH` is configured: model/source descriptions, column descriptions, tags, and
-declared test targets are attacker-influenceable free text in the same way a hand-written
-catalog sidecar description is, and flow through the identical `StrictModel` contracts and
-"untrusted data" prompt framing. A dbt model with no matching physical Parquet dataset can
-never be selected or executed; see `agentic_data_analyst/dbt/catalog.py` for the mechanism.
-The application never evaluates model-produced Python or SQL. Structured provider responses
-must validate as strict Pydantic models; unknown fields and unsupported discriminated-union
-operations fail closed.
+User questions, model output (generated SQL, chart choices, replies) and query results are untrusted. The seed
+database, application code, configuration and the DuckDB library are trusted operator inputs.
 
-Only a semantically valid `spark_dataframe_ir/v1` can reach the compiler. The validator
-authorizes catalog datasets, canonicalizes existing paths below the configured catalog root,
-checks selected columns, relation lineage, and compatible expression operand types, rejects
-unsupported nodes, bounds expression and plan complexity, and requires a final result limit.
-It returns an internal capability with a snapshot of the approved paths and columns. Both
-preview rendering and execution compilation accept that capability and use an exhaustive
-mapping to PySpark DataFrame operations.
+The security boundary is deterministic and lives in `src/agentic_data_analyst/database.py`. It holds whatever the
+analyst or the reviewer model decides:
 
-The IR has no operations for Python imports or evaluation, environment variables, networks,
-processes, shell commands, arbitrary URLs or paths, Spark SQL strings, JVM access, UDFs,
-Spark configuration, or writes. These properties constrain model-generated analysis; they
-do not make the Python process or Spark runtime a general sandbox.
+- Generated SQL must parse to exactly one `SELECT`. Its syntax tree may reference only the six data tables (and its
+  own CTEs) and no table functions except `range`, `generate_series` and `unnest`.
+- The database file is opened read-only, with external access disabled (no other files, no network), extension
+  autoloading and installing disabled, memory and threads bounded, and the configuration locked so a query cannot
+  loosen any of this.
+- Every query has a deadline (interrupted after 20 s) and returns at most 200 rows.
+- The analyst loop is bounded in rounds and in cost per answer and per chat.
 
-## Trusted components and limitations
+The SQL reviewer agent is defence in depth for correctness, not part of the security boundary.
 
-Application code, runtime configuration, the catalog root and its contents, Python, Java,
-and Spark are trusted operator inputs. A privileged actor who can replace files after path
-authorization can violate assumptions outside this model. The OpenRouter provider receives
-the question and the metadata selected for each model stage.
+## Known limitations
 
-Spark runs in the API process with one shared session. It provides no hostile multi-tenant
-isolation, per-request memory or CPU quota, or guaranteed termination. The configurable
-deadline calls Spark job-group cancellation, which is cooperative and may not interrupt
-blocked JVM or native work. Deploy untrusted tenants through isolated worker processes or
-containers with external time and resource enforcement. The reference API also has no
-authentication, authorization, rate limiting, or persistent audit log.
+- There is no authentication, authorization or rate limiting. The per-chat cost budget resets with a new chat.
+- Prompt injection can change *which* SELECT the analyst writes. It cannot make the app write data, read files,
+  reach the network or exceed the deadline, row cap or budgets.
+- Questions, schema metadata and query results are sent to the Anthropic API.
 
 ## Reporting a vulnerability
 
-Please use GitHub's private security-advisory reporting feature for this repository. Include
-the affected version, reproduction steps, impact, and any suggested mitigation. Avoid filing
-public issues for vulnerabilities until a fix is available.
+Please use GitHub's private security-advisory reporting for this repository. Include the affected version,
+reproduction steps, impact and any suggested mitigation. Avoid filing public issues for vulnerabilities until a
+fix is available.
